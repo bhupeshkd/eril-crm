@@ -3,10 +3,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 /** Single-series chart primitives: thin marks, recessive axes, hover/focus tooltips, table view. */
-// Matches the brand palette (tailwind brand-600 / slate).
+// Sky blue, matching the glass design system's chart colour.
 const C = {
-  series: '#5847d7',
-  seriesSoft: 'rgba(88,71,215,0.10)',
+  series: '#5B9EE1',
+  seriesSoft: 'rgba(91,158,225,0.14)',
   grid: '#eef0f4',
   axis: '#94a3b8',
   text2: '#475569',

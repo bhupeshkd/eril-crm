@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Task } from '@/lib/types-ext';
@@ -22,6 +22,14 @@ export default function TasksPage() {
   const { can } = useAuth();
   const [status, setStatus] = useState<Filter>('open');
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  const formRef = useRef<HTMLDivElement>(null);
+
+  // ?new=1 (from the + New menu) puts the cursor in the add-task box.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('new') !== '1') return;
+    window.history.replaceState(null, '', '/tasks');
+    setTimeout(() => formRef.current?.querySelector<HTMLInputElement>('input, textarea')?.focus(), 50);
+  }, []);
 
   const load = useCallback(() => api<Task[]>(`/crm/tasks${status ? `?status=${status}` : ''}`).then(setTasks).catch((e) => toast(errorText(e), 'error')), [status, toast]);
   useEffect(() => {
@@ -42,15 +50,15 @@ export default function TasksPage() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Tasks" subtitle="Follow-ups for you and your team" />
+      <PageHeader title="Activities" subtitle="Tasks and follow-ups for you and your team" />
       {can('contacts:write') && (
-        <div className="card mb-5 p-3">
+        <div ref={formRef} className="card mb-5 p-3">
           <TaskForm onCreated={load} />
         </div>
       )}
       <div className="mb-4 flex items-center justify-between gap-3">
         <Segmented<Filter> label="Filter tasks" value={status} onChange={setStatus} options={[['open', 'Open'], ['overdue', 'Overdue'], ['done', 'Completed'], ['', 'All']]} />
-        {tasks && tasks.length > 0 && <span className="text-[13px] tabular-nums text-slate-500">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>}
+        {tasks && tasks.length > 0 && <span className="text-[13px] tabular-nums text-muted">{tasks.length} task{tasks.length === 1 ? '' : 's'}</span>}
       </div>
       {!tasks ? <PageLoader /> : tasks.length === 0 ? <EmptyState title={EMPTY[status][0]}>{EMPTY[status][1]}</EmptyState> : <TaskList tasks={tasks} onToggle={toggle} />}
     </div>

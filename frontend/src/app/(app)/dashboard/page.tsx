@@ -1,239 +1,316 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
-import { api, fmtMoney, timeAgo } from '@/lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import type { Activity } from '@/lib/types';
-import { Spinner } from '@/components/ui';
+import { Modal, Spinner, errorText, useToast } from '@/components/ui';
 import { Icon } from '@/components/icons';
-import { ChartCard, ColumnChart, LineChart } from '@/components/charts';
-
-interface Stats {
-  totalRevenue: number;
-  wonDeals: number;
-  openPipelineValue: number;
-  openDeals: number;
-  activeLeads: number;
-  customers: number;
-  totalContacts: number;
-  activeWorkflows: number;
-  unreadMessages: number;
-  invoiceRevenue: number;
-  upcomingAppointments: number;
-  openTasks: number;
-  recentActivity: Activity[];
-}
 
 interface Overview {
-  totals: { newContacts: number; revenue: number; winRate: number | null };
-  leadsByDay: Array<{ day: string; value: number }>;
-  revenueByDay: Array<{ day: string; value: number }>;
-  pipeline: Array<{ stage: string; count: number; value: number }>;
+  currency: string;
+  target: number | null;
+  won: { thisMonth: number; lastMonth: number; deals: number; changePct: number | null; targetPct: number | null };
+  pipeline: { value: number; deals: number; weighted: number };
+  winRate: { won: number; closed: number; pct: number | null };
+  months: Array<{ month: string; won: number }>;
+  stages: Array<{ id: string; name: string; deals: number; value: number }>;
+  nextBestMove: { id: string; title: string; value: number; closeDate: string | null; stage: string; probability: number; contact: string; company: string | null } | null;
+  today: Array<{ id: string; title: string; dueAt: string; contact: string; contactId: string | null }>;
+  counts: { overdue: number; tasksToday: number; appointmentsToday: number };
+  leaderboard: Array<{ id: string; name: string; deals: number; won: number; sharePct: number }>;
 }
 
-/** Activity type prefix → icon + tint. */
-const ACTIVITY: Record<string, { icon: string; tint: string }> = {
-  contact: { icon: 'contacts', tint: 'bg-sky-50 text-sky-600' },
-  opportunity: { icon: 'pipeline', tint: 'bg-violet-50 text-violet-600' },
-  message: { icon: 'inbox', tint: 'bg-indigo-50 text-indigo-600' },
-  email: { icon: 'inbox', tint: 'bg-indigo-50 text-indigo-600' },
-  appointment: { icon: 'calendar', tint: 'bg-teal-50 text-teal-600' },
-  form: { icon: 'forms', tint: 'bg-amber-50 text-amber-600' },
-  invoice: { icon: 'payments', tint: 'bg-emerald-50 text-emerald-600' },
-  order: { icon: 'payments', tint: 'bg-emerald-50 text-emerald-600' },
-  subscription: { icon: 'payments', tint: 'bg-emerald-50 text-emerald-600' },
-  task: { icon: 'tasks', tint: 'bg-slate-100 text-slate-600' },
-  note: { icon: 'note', tint: 'bg-slate-100 text-slate-600' },
-  campaign: { icon: 'marketing', tint: 'bg-rose-50 text-rose-600' },
-  course: { icon: 'courses', tint: 'bg-fuchsia-50 text-fuchsia-600' },
-  community: { icon: 'communities', tint: 'bg-fuchsia-50 text-fuchsia-600' },
-  review: { icon: 'reputation', tint: 'bg-amber-50 text-amber-600' },
-  workflow: { icon: 'automation', tint: 'bg-orange-50 text-orange-600' },
-};
-
+const money = (n: number, currency: string, compact = false) =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0, ...(compact ? { notation: 'compact' as const } : {}) }).format(n);
 const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
-const shortDay = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+const initials = (s: string) => s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
+const AVATARS = ['bg-[#5B9EE1]', 'bg-[#8FB65A]', 'bg-[#E0936F]', 'bg-[#C5A94F]'];
 
-export default function DashboardPage() {
+/** Overview: a calm bento of this month's results, the pipeline, and what to do today. */
+export default function OverviewPage() {
   const { me, can } = useAuth();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [overview, setOverview] = useState<Overview | null>(null);
+  const toast = useToast();
+  const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState('');
+  const [targetOpen, setTargetOpen] = useState(false);
 
-  useEffect(() => {
-    api<Stats>('/dashboard/stats').then(setStats).catch((e) => setError(e.message));
+  const load = useCallback(() => {
+    api<Overview>('/dashboard/overview').then(setData).catch((e) => setError(errorText(e)));
   }, []);
-  useEffect(() => {
-    if (can('analytics:read')) api<Overview>('/reports/overview?days=30').then(setOverview).catch(() => {});
-  }, [can]);
+  useEffect(load, [load]);
 
-  if (error) return <p className="text-rose-600">{error}</p>;
-  if (!stats) return <div className="grid h-64 place-items-center"><Spinner /></div>;
+  async function complete(id: string) {
+    setData((d) => (d ? { ...d, today: d.today.filter((t) => t.id !== id) } : d));
+    try {
+      await api(`/crm/tasks/${id}`, { method: 'PUT', body: { completed: true } });
+      toast('Task done');
+    } catch (e) {
+      toast(errorText(e), 'error');
+      load();
+    }
+  }
 
-  const first = me?.name.split(/\s+/)[0] ?? '';
-  const kpis = [
-    { label: 'Payments collected', value: fmtMoney(stats.invoiceRevenue), hint: 'from paid invoices', href: '/payments', icon: 'payments', tint: 'from-emerald-500 to-teal-500' },
-    { label: 'Open pipeline', value: fmtMoney(stats.openPipelineValue), hint: `${stats.openDeals} open deal${stats.openDeals === 1 ? '' : 's'}`, href: '/pipeline', icon: 'pipeline', tint: 'from-brand-500 to-brand-700' },
-    { label: 'Won deals', value: fmtMoney(stats.totalRevenue), hint: `${stats.wonDeals} won`, href: '/pipeline', icon: 'trendUp', tint: 'from-sky-500 to-indigo-500' },
-    { label: 'Active leads', value: stats.activeLeads.toLocaleString(), hint: `${stats.customers} customers · ${stats.totalContacts} contacts`, href: '/contacts?status=lead', icon: 'contacts', tint: 'from-amber-500 to-orange-500' },
-  ];
-  const minis = [
-    { label: 'Unread messages', value: stats.unreadMessages, href: '/inbox', icon: 'inbox', alert: stats.unreadMessages > 0 },
-    { label: 'Upcoming appointments', value: stats.upcomingAppointments, href: '/calendars', icon: 'calendar' },
-    { label: 'Open tasks', value: stats.openTasks, href: '/tasks', icon: 'tasks', alert: stats.openTasks > 0 },
-    { label: 'Live automations', value: stats.activeWorkflows, href: '/workflows', icon: 'automation' },
-  ];
-  const actions = [
-    { label: 'Add contact', href: '/contacts', icon: 'contacts', perm: 'contacts:write' },
-    { label: 'New campaign', href: '/campaigns', icon: 'marketing', perm: 'campaigns:write' },
-    { label: 'Create invoice', href: '/payments', icon: 'payments', perm: 'invoices:write' },
-    { label: 'Book appointment', href: '/calendars', icon: 'calendar', perm: 'appointments:write' },
-  ].filter((a) => can(a.perm));
-  const pipeMax = Math.max(1, ...(overview?.pipeline ?? []).map((p) => p.value));
+  if (error) return <div className="card p-6 text-sm text-rose-600">{error}</div>;
+  if (!data || !me) return <div className="grid h-64 place-items-center"><Spinner /></div>;
+  const c = data.currency;
+  const current = me.workspaceMemberships.find((m) => m.workspaceId === me.currentWorkspaceId);
+  const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const activitiesToday = data.counts.tasksToday + data.counts.appointmentsToday;
 
   return (
-    <>
-      {/* Hero */}
-      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="space-y-4">
+      {/* Greeting */}
+      <div className="flex flex-wrap items-end justify-between gap-3 pb-1 pt-2">
         <div>
-          <p className="text-sm font-medium text-brand-600">{new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-          <h1 className="mt-1 text-[28px] font-semibold leading-tight tracking-tight">
-            {greeting()}{first ? `, ${first}` : ''}
+          <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-ink md:text-[32px]">
+            {greeting()}, {me.name.split(/\s+/)[0]}
           </h1>
-          <p className="mt-1 text-sm text-slate-500">Here’s what’s happening across your business today.</p>
+          <p className="mt-1 text-[13px] text-muted">
+            {current?.workspaceName} · {date} · <span className={data.counts.overdue ? 'font-medium text-[#B4502F]' : ''}>{data.counts.overdue} overdue</span>, {activitiesToday} {activitiesToday === 1 ? 'activity' : 'activities'} today
+          </p>
         </div>
-        {actions.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {actions.map((a, i) => (
-              <Link key={a.label} href={a.href} className={i === 0 ? 'btn-primary' : 'btn-secondary'}>
-                <Icon name={i === 0 ? 'plus' : a.icon} className="h-4 w-4" />
-                {a.label}
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* KPIs */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {kpis.map((k) => (
-          <Link key={k.label} href={k.href} className="card card-hover group relative overflow-hidden p-5">
-            <div className="flex items-start justify-between">
-              <div className="text-[13px] font-medium text-slate-500">{k.label}</div>
-              <span className={`grid h-9 w-9 place-items-center rounded-lg bg-gradient-to-br ${k.tint} text-white shadow-sm`}>
-                <Icon name={k.icon} className="h-[18px] w-[18px]" />
-              </span>
-            </div>
-            <div className="mt-3 text-[28px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">{k.value}</div>
-            <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
-              <span>{k.hint}</span>
-              <Icon name="arrowUpRight" className="h-3.5 w-3.5 text-slate-300 transition group-hover:text-brand-500" />
-            </div>
-          </Link>
-        ))}
-      </div>
-
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {minis.map((m) => (
-          <Link key={m.label} href={m.href} className="card card-hover flex items-center gap-3 px-4 py-3.5">
-            <span className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-500">
-              <Icon name={m.icon} className="h-[18px] w-[18px]" />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-600">{m.label}</span>
-            <span className={`text-lg font-semibold tabular-nums ${m.alert ? 'text-brand-600' : 'text-slate-900'}`}>{m.value}</span>
-          </Link>
-        ))}
-      </div>
-
-      {/* Charts */}
-      {overview && (
-        <div className="mt-6 grid gap-4 lg:grid-cols-3">
-          <div className="lg:col-span-2">
-            <ChartCard
-              title="Revenue"
-              subtitle={`${fmtMoney(overview.totals.revenue)} in the last 30 days`}
-              table={{ columns: ['Day', 'Revenue'], rows: overview.revenueByDay.map((d) => [shortDay(d.day), fmtMoney(d.value)]) }}
-            >
-              <LineChart ariaLabel="Revenue per day, last 30 days" data={overview.revenueByDay.map((d) => ({ label: d.day, value: d.value }))} format={fmtMoney} height={220} />
-            </ChartCard>
-          </div>
-          <ChartCard
-            title="New leads"
-            subtitle={`${overview.totals.newContacts} new contacts · 30 days`}
-            table={{ columns: ['Day', 'Leads'], rows: overview.leadsByDay.map((d) => [shortDay(d.day), String(d.value)]) }}
-          >
-            <ColumnChart ariaLabel="New leads per day, last 30 days" data={overview.leadsByDay.map((d) => ({ label: d.day, value: d.value }))} height={220} />
-          </ChartCard>
+        <div className="flex gap-2">
+          {can('analytics:read') && <Link href="/reporting" className="btn-secondary h-10"><Icon name="reporting" className="h-4 w-4" /> Reports</Link>}
+          {can('opportunities:write') && <Link href="/pipeline?new=1" className="btn-primary h-10"><Icon name="plus" className="h-4 w-4" /> New deal</Link>}
         </div>
-      )}
+      </div>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        {/* Activity */}
-        <section className="card lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="text-[15px] font-semibold">Recent activity</h2>
-            <span className="flex items-center gap-1.5 text-xs text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Updated just now</span>
-          </div>
-          {stats.recentActivity.length === 0 ? (
-            <p className="p-8 text-center text-sm text-slate-500">No activity yet. Add a contact to get started.</p>
+      {/* Row 1: KPIs */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Kpi tint="tint-sky" label="Won this month" value={money(data.won.thisMonth, c)}>
+          {data.target ? (
+            <>
+              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/10">
+                <div className="h-full rounded-full bg-[#181a18]" style={{ width: `${Math.min(100, data.won.targetPct ?? 0)}%` }} />
+              </div>
+              <p className="mt-2 text-[12px] text-muted num">
+                {data.won.targetPct}% of target{data.won.changePct !== null && <> · <Trend pct={data.won.changePct} /> vs last month</>}
+                {can('workspaces:write') && <button className="ml-1 underline-offset-2 hover:underline" onClick={() => setTargetOpen(true)}>Edit</button>}
+              </p>
+            </>
           ) : (
-            <ol className="relative px-5 py-2">
-              {stats.recentActivity.map((a, i) => {
-                const meta = ACTIVITY[a.type.split('.')[0]] ?? { icon: 'dot', tint: 'bg-slate-100 text-slate-500' };
+            <p className="mt-3 text-[12px] text-muted">
+              {data.won.deals} deal{data.won.deals === 1 ? '' : 's'}{data.won.changePct !== null && <> · <Trend pct={data.won.changePct} /> vs last month</>}
+              {can('workspaces:write') && <> · <button className="font-medium text-ink underline-offset-2 hover:underline" onClick={() => setTargetOpen(true)}>Set a target</button></>}
+            </p>
+          )}
+        </Kpi>
+        <Kpi tint="tint-sage" label="Open pipeline" value={money(data.pipeline.value, c)}>
+          <p className="mt-3 text-[12px] text-muted num">{data.pipeline.deals} open deal{data.pipeline.deals === 1 ? '' : 's'}</p>
+        </Kpi>
+        <Kpi tint="tint-peach" label="Weighted forecast" value={money(data.pipeline.weighted, c)}>
+          <p className="mt-3 text-[12px] text-muted">by stage probability</p>
+        </Kpi>
+        <Kpi tint="tint-neutral" label="Win rate" value={data.winRate.pct === null ? '—' : `${data.winRate.pct}%`}>
+          <p className="mt-3 text-[12px] text-muted num">{data.winRate.closed ? `${data.winRate.won} of ${data.winRate.closed} closed deals won` : 'No closed deals yet'}</p>
+        </Kpi>
+      </div>
+
+      {/* Row 2: revenue + stages */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <section className="card p-5 lg:col-span-8">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h2 className="text-[15px] font-semibold text-ink">Revenue won</h2>
+              <p className="text-[12px] text-muted">Last 12 months{data.target ? ' against the monthly target' : ''}</p>
+            </div>
+            <div className="flex items-center gap-3 text-[12px] text-muted">
+              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#5B9EE1]" /> Won</span>
+              {data.target && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#181a18]/50" /> Target</span>}
+            </div>
+          </div>
+          <RevenueChart months={data.months} target={data.target} currency={c} />
+        </section>
+        <section className="card p-5 lg:col-span-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-[15px] font-semibold text-ink">Pipeline by stage</h2>
+              <p className="text-[12px] text-muted">Value in each stage</p>
+            </div>
+            <Link href="/pipeline" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Board <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
+          </div>
+          <StageBars stages={data.stages} currency={c} />
+        </section>
+      </div>
+
+      {/* Row 3: today */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <section className="flex flex-col rounded-[22px] border border-[var(--glass-border)] p-5 tint-sage lg:col-span-4" style={{ backdropFilter: 'blur(20px)' }}>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink/70">◎ Next best move</div>
+          {data.nextBestMove ? (
+            <>
+              <div className="mt-3 text-[20px] font-bold leading-snug text-ink">{data.nextBestMove.title}</div>
+              <div className="mt-1 text-[13px] text-ink/70">
+                {[data.nextBestMove.company || data.nextBestMove.contact, data.nextBestMove.stage, data.nextBestMove.closeDate ? `closes ${new Date(data.nextBestMove.closeDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : null].filter(Boolean).join(' · ')}
+              </div>
+              <div className="mt-4 text-[28px] font-bold tracking-[-0.03em] text-ink num">{money(data.nextBestMove.value, c)}</div>
+              <div className="text-[12px] text-ink/70 num">{data.nextBestMove.probability}% likely to close</div>
+              <div className="flex-1" />
+              <Link href={`/pipeline?deal=${data.nextBestMove.id}`} className="btn-primary mt-5 h-11 w-full">Open deal <Icon name="chevronRight" className="h-4 w-4" /></Link>
+            </>
+          ) : (
+            <p className="mt-3 text-sm text-ink/70">No open deals right now. Add one to see what to focus on.</p>
+          )}
+        </section>
+
+        <section className="card p-5 lg:col-span-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-[15px] font-semibold text-ink">Today</h2>
+              <p className="text-[12px] text-muted num">{data.today.length} to do</p>
+            </div>
+            <Link href="/tasks" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Agenda <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
+          </div>
+          {data.today.length === 0 ? (
+            <p className="mt-6 text-center text-sm text-muted">Nothing due today. 🎉</p>
+          ) : (
+            <ul className="mt-3 space-y-1">
+              {data.today.map((t) => {
+                const overdue = new Date(t.dueAt) < new Date(new Date().setHours(0, 0, 0, 0));
                 return (
-                  <li key={a.id} className="relative flex items-start gap-3 py-2.5">
-                    {i < stats.recentActivity.length - 1 && <span aria-hidden className="absolute left-[15px] top-10 h-[calc(100%-1.5rem)] w-px bg-slate-100" />}
-                    <span aria-hidden className={`relative grid h-8 w-8 shrink-0 place-items-center rounded-full ring-4 ring-white ${meta.tint}`}>
-                      <Icon name={meta.icon} className="h-4 w-4" />
-                    </span>
-                    <span className="min-w-0 flex-1 pt-1.5 text-[13.5px] leading-snug text-slate-700">{a.description}</span>
-                    <time className="whitespace-nowrap pt-1.5 text-xs text-slate-400" dateTime={a.createdAt}>{timeAgo(a.createdAt)}</time>
+                  <li key={t.id} className="flex items-start gap-3 rounded-2xl px-2 py-2 hover:bg-[var(--track)]">
+                    <input type="checkbox" aria-label={`Mark "${t.title}" done`} className="mt-0.5" onChange={() => complete(t.id)} disabled={!can('contacts:write')} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-medium text-ink">{t.title}</div>
+                      <div className={`truncate text-[12px] num ${overdue ? 'text-[#B4502F]' : 'text-muted'}`}>
+                        {overdue ? `Overdue · ${new Date(t.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : new Date(t.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {t.contact ? ` · ${t.contact}` : ''}
+                      </div>
+                    </div>
+                    <Icon name="tasks" className="mt-0.5 h-4 w-4 text-muted" />
                   </li>
                 );
               })}
-            </ol>
-          )}
-        </section>
-
-        {/* Pipeline */}
-        <section className="card">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-            <h2 className="text-[15px] font-semibold">Pipeline</h2>
-            <Link href="/pipeline" className="text-xs font-medium text-brand-600 hover:text-brand-700">View board →</Link>
-          </div>
-          {!overview ? (
-            <div className="p-5 text-sm text-slate-500">{can('analytics:read') ? <Spinner /> : 'Pipeline insights need reporting access.'}</div>
-          ) : overview.pipeline.length === 0 ? (
-            <p className="p-8 text-center text-sm text-slate-500">No open deals yet.</p>
-          ) : (
-            <ul className="space-y-4 p-5">
-              {overview.pipeline.map((p) => (
-                <li key={p.stage}>
-                  <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px]">
-                    <span className="truncate font-medium text-slate-700">{p.stage}</span>
-                    <span className="tabular-nums text-slate-500">
-                      <span className="font-semibold text-slate-900">{fmtMoney(p.value)}</span> · {p.count}
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-700" style={{ width: `${Math.max(3, (p.value / pipeMax) * 100)}%` }} />
-                  </div>
-                </li>
-              ))}
-              {overview.totals.winRate !== null && (
-                <li className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-[13px]">
-                  <span className="text-slate-600">Win rate (30 days)</span>
-                  <span className="font-semibold tabular-nums">{overview.totals.winRate}%</span>
-                </li>
-              )}
             </ul>
           )}
         </section>
+
+        <section className="card p-5 lg:col-span-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-[15px] font-semibold text-ink">Leaderboard</h2>
+              <p className="text-[12px] text-muted">Won this month</p>
+            </div>
+            <Link href="/settings" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Team <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
+          </div>
+          {data.leaderboard.length === 0 ? (
+            <p className="mt-6 text-center text-sm text-muted">No deals won yet this month. Wins are credited to the contact&apos;s owner.</p>
+          ) : (
+            <ol className="mt-3 space-y-1">
+              {data.leaderboard.map((l, i) => (
+                <li key={l.id} className="flex items-center gap-3 rounded-2xl px-2 py-2">
+                  <span className="w-4 text-center text-[13px] font-semibold text-muted num">{i + 1}</span>
+                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white ${AVATARS[i % AVATARS.length]}`}>{initials(l.name)}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[14px] font-medium text-ink">{l.name}</div>
+                    <div className="text-[12px] text-muted num">{l.sharePct}% of team · {l.deals} deal{l.deals === 1 ? '' : 's'}</div>
+                  </div>
+                  <span className="text-[14px] font-semibold text-ink num">{money(l.won, c)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
       </div>
-    </>
+
+      {targetOpen && <TargetModal current={data.target} currency={c} onClose={() => setTargetOpen(false)} onSaved={() => { setTargetOpen(false); load(); }} />}
+    </div>
+  );
+}
+
+function Kpi({ tint, label, value, children }: { tint: string; label: string; value: string; children?: React.ReactNode }) {
+  return (
+    <section className={`rounded-[22px] border border-[var(--glass-border)] p-5 ${tint}`} style={{ backdropFilter: 'blur(20px)' }}>
+      <div className="text-[13px] font-medium text-ink/75">{label}</div>
+      <div className="mt-2 text-[30px] font-bold leading-none tracking-[-0.03em] text-ink num md:text-[34px]">{value}</div>
+      {children}
+    </section>
+  );
+}
+
+function Trend({ pct }: { pct: number }) {
+  return <span className={pct >= 0 ? 'font-medium text-[#3F7A12]' : 'font-medium text-[#B4502F]'}>{pct >= 0 ? '↗' : '↘'} {pct >= 0 ? '+' : ''}{pct}%</span>;
+}
+
+/** 12 rounded columns in full-height tracks; dashed target line; the current month in lime. */
+function RevenueChart({ months, target, currency }: { months: Overview['months']; target: number | null; currency: string }) {
+  const max = Math.max(1, target ?? 0, ...months.map((m) => m.won)) * 1.1;
+  const label = (k: string) => new Date(`${k}-15T00:00:00Z`).toLocaleDateString(undefined, { month: 'short' });
+  return (
+    <div className="relative mt-5 h-56">
+      {target !== null && (
+        <div className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-dashed border-[#181a18]/40" style={{ bottom: `calc(${(target / max) * 100}% * (192 / 224) + 32px)` }}>
+          <span className="absolute -top-5 right-0 rounded-full bg-[var(--pill)] px-2 text-[11px] text-muted num">{new Intl.NumberFormat(undefined, { style: 'currency', currency, notation: 'compact' }).format(target)}</span>
+        </div>
+      )}
+      <div className="grid h-full grid-cols-12 gap-1.5 sm:gap-2.5" role="img" aria-label="Revenue won per month for the last 12 months">
+        {months.map((m, i) => {
+          const isNow = i === months.length - 1;
+          return (
+            <div key={m.month} className="flex h-full flex-col items-center gap-2" title={`${label(m.month)}: ${new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(m.won)}`}>
+              <div className="relative flex h-48 w-full items-end overflow-hidden rounded-xl" style={{ background: 'var(--track)' }}>
+                <div className={`w-full rounded-t-xl transition-all ${isNow ? 'bg-[#A3D929]' : 'bg-[#5B9EE1]'}`} style={{ height: `${(m.won / max) * 100}%`, minHeight: m.won ? 6 : 0 }} />
+              </div>
+              <span className={`text-[11px] ${isNow ? 'font-bold text-ink' : 'text-muted'}`}>{label(m.month)}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function StageBars({ stages, currency }: { stages: Overview['stages']; currency: string }) {
+  const max = Math.max(1, ...stages.map((s) => s.value));
+  if (!stages.length) return <p className="mt-6 text-center text-sm text-muted">No pipeline yet.</p>;
+  return (
+    <ul className="mt-4 space-y-4">
+      {stages.map((s, i) => {
+        const won = /won/i.test(s.name);
+        const color = won ? '#B6E633' : i === 0 ? '#D8C380' : '#5B9EE1';
+        return (
+          <li key={s.id}>
+            <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px]">
+              <span className="truncate font-medium text-ink">{s.name} <span className="font-normal text-muted num">· {s.deals}</span></span>
+              <span className="font-semibold text-ink num">{new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(s.value)}</span>
+            </div>
+            <div className="progress-track"><div className="h-full rounded-full" style={{ width: `${(s.value / max) * 100}%`, background: color, minWidth: s.value ? 8 : 0 }} /></div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function TargetModal({ current, currency, onClose, onSaved }: { current: number | null; currency: string; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [v, setV] = useState(current ? String(current) : '');
+  const [busy, setBusy] = useState(false);
+  async function save(value: number | null) {
+    setBusy(true);
+    try {
+      await api('/dashboard/target', { method: 'PUT', body: { monthlyTarget: value } });
+      toast(value === null ? 'Target removed' : 'Target saved');
+      onSaved();
+    } catch (e) { toast(errorText(e), 'error'); } finally { setBusy(false); }
+  }
+  return (
+    <Modal open title="Monthly revenue target" onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); save(v.trim() ? Number(v) : null); }} className="space-y-4">
+        <div>
+          <label className="label" htmlFor="tg-v">Target per month ({currency})</label>
+          <input id="tg-v" type="number" min={0} step="1" className="input" placeholder="50000" value={v} onChange={(e) => setV(e.target.value)} autoFocus />
+          <p className="mt-1 text-xs text-muted">Shown on the Overview: progress this month and a line on the revenue chart.</p>
+        </div>
+        <div className="flex justify-between gap-2">
+          {current !== null ? <button type="button" className="btn-ghost" disabled={busy} onClick={() => save(null)}>Remove target</button> : <span />}
+          <div className="flex gap-2"><button type="button" className="btn-secondary" onClick={onClose}>Cancel</button><button className="btn-primary" disabled={busy}>Save</button></div>
+        </div>
+      </form>
+    </Modal>
   );
 }
