@@ -1,0 +1,123 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class InitialSchema1794813983583 implements MigrationInterface {
+    name = 'InitialSchema1794813983583'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+        await queryRunner.query(`CREATE TABLE "organizations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "name" character varying NOT NULL, "plan" character varying NOT NULL DEFAULT 'free', CONSTRAINT "PK_6b031fcd0863e3f6b44230163f9" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "invitations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "email" character varying NOT NULL, "workspace_id" uuid NOT NULL, "invited_by" uuid, "role" character varying NOT NULL DEFAULT 'team_member', "invitation_token" character varying NOT NULL, "expires_at" TIMESTAMP WITH TIME ZONE NOT NULL, "accepted_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_5dec98cfdfd562e4ad3648bbb07" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "email" character varying NOT NULL, "password_hash" character varying NOT NULL, "name" character varying NOT NULL, "avatarUrl" character varying, "role" character varying NOT NULL DEFAULT 'team_member', "email_verified" boolean NOT NULL DEFAULT false, "current_workspace_id" character varying, "email_verification_token" character varying, "email_verification_expires_at" TIMESTAMP WITH TIME ZONE, "password_reset_token" character varying, "password_reset_expires_at" TIMESTAMP WITH TIME ZONE, "mfa_enabled" boolean NOT NULL DEFAULT false, "mfa_secret" character varying, "last_login_at" TIMESTAMP WITH TIME ZONE, "current_organization_id" uuid, CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_97672ac88f789774dd47f7c8be" ON "users" ("email") `);
+        await queryRunner.query(`CREATE TABLE "workspace_members" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "user_id" uuid NOT NULL, "workspace_id" uuid NOT NULL, "role" character varying NOT NULL DEFAULT 'team_member', CONSTRAINT "UQ_4896b609c71ca5ad20ad662077b" UNIQUE ("user_id", "workspace_id"), CONSTRAINT "PK_22ab43ac5865cd62769121d2bc4" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "workspaces" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "name" character varying NOT NULL, "organization_id" uuid NOT NULL, "settings" jsonb NOT NULL DEFAULT '{}', CONSTRAINT "PK_098656ae401f3e1a4586f47fd8e" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "workflows" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "name" character varying(255) NOT NULL, "trigger_type" character varying(50) NOT NULL DEFAULT 'manual', "trigger_config" jsonb NOT NULL DEFAULT '{}', "steps" jsonb NOT NULL DEFAULT '[]', "is_published" boolean NOT NULL DEFAULT false, "run_count" integer NOT NULL DEFAULT '0', CONSTRAINT "PK_5b5757cc1cd86268019fef52e0c" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_e9fbaabbbb5d7968c42f11d221" ON "workflows" ("workspace_id", "trigger_type") `);
+        await queryRunner.query(`CREATE TABLE "workflow_runs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "workflow_id" uuid NOT NULL, "trigger_type" character varying(50) NOT NULL, "status" character varying(20) NOT NULL DEFAULT 'running', "context" jsonb NOT NULL DEFAULT '{}', "log" jsonb NOT NULL DEFAULT '[]', "error" text, "finished_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_eea9f8d0a660b3f48114c313233" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_a32fba4416d80be14d70f41242" ON "workflow_runs" ("workflow_id", "created_at") `);
+        await queryRunner.query(`CREATE TABLE "sessions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "user_id" uuid NOT NULL, "refresh_token_hash" character varying NOT NULL, "ip_address" character varying, "user_agent" text, "expires_at" TIMESTAMP WITH TIME ZONE NOT NULL, "revoked_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "PK_3238ef96f18b355b671619111bc" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_d6185b2849a1e4d0c067a57ca8" ON "sessions" ("refresh_token_hash") `);
+        await queryRunner.query(`CREATE INDEX "IDX_085d540d9f418cfbdc7bd55bb1" ON "sessions" ("user_id") `);
+        await queryRunner.query(`CREATE TABLE "roles" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "name" character varying NOT NULL, "permissions" text array NOT NULL DEFAULT '{}', "workspace_id" uuid NOT NULL, CONSTRAINT "UQ_390d26e2563838a4e71f1539d9b" UNIQUE ("workspace_id", "name"), CONSTRAINT "PK_c1433d71a4838793a49dcad46ab" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "pipeline_stages" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "pipeline_id" uuid NOT NULL, "name" character varying(100) NOT NULL, "position" integer NOT NULL DEFAULT '0', "probability" integer NOT NULL DEFAULT '0', CONSTRAINT "PK_92e43270eace072ad5182fc08e2" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_860777f3eb94ace40de2cc82e6" ON "pipeline_stages" ("pipeline_id", "position") `);
+        await queryRunner.query(`CREATE TABLE "pipelines" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "name" character varying(255) NOT NULL, CONSTRAINT "PK_e38ea171cdfad107c1f3db2c036" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_94a5878a03f707617b38b20c66" ON "pipelines" ("workspace_id") `);
+        await queryRunner.query(`CREATE TABLE "role_permissions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "role_id" uuid NOT NULL, "permission" character varying NOT NULL, CONSTRAINT "UQ_0167acb6e0ccfcf0c6c140cec4a" UNIQUE ("role_id", "permission"), CONSTRAINT "PK_84059017c90bfcb701b8fa42297" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "companies" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "name" character varying(255) NOT NULL, "domain" character varying(255), "industry" character varying(100), "phone" character varying(30), CONSTRAINT "PK_d4bc3e82a314fa9e29f652c2c22" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_aafdf4e56e838bc1b592ad4d68" ON "companies" ("workspace_id", "name") `);
+        await queryRunner.query(`CREATE TABLE "contacts" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "first_name" character varying(100) NOT NULL, "last_name" character varying(100) NOT NULL DEFAULT '', "email" character varying(255), "phone" character varying(30), "status" character varying(20) NOT NULL DEFAULT 'lead', "tags" text array NOT NULL DEFAULT '{}', "notes" text, "company_id" uuid, "owner_id" uuid, CONSTRAINT "PK_b99cd40cfd66a99f1571f4f72e6" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_d2f97502095e6219f66797a97a" ON "contacts" ("workspace_id", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_37aee5a1b7b1ab5f21fa7cc283" ON "contacts" ("workspace_id", "email") `);
+        await queryRunner.query(`CREATE TABLE "opportunities" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "title" character varying(255) NOT NULL, "value" numeric(15,2) NOT NULL DEFAULT '0', "probability" integer, "status" character varying(20) NOT NULL DEFAULT 'open', "position" integer NOT NULL DEFAULT '0', "contact_id" uuid, "pipeline_id" uuid NOT NULL, "stage_id" uuid NOT NULL, "expected_close_date" date, CONSTRAINT "PK_4bd9cd12ddc0ff48a5a97ddebce" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_6dca5ac7fd096897f35be8f188" ON "opportunities" ("workspace_id", "pipeline_id", "stage_id") `);
+        await queryRunner.query(`CREATE TABLE "conversations" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "contact_id" uuid NOT NULL, "channel" character varying(20) NOT NULL, "subject" character varying(255) NOT NULL DEFAULT '', "last_message_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "last_message_preview" character varying(255) NOT NULL DEFAULT '', "unread_count" integer NOT NULL DEFAULT '0', CONSTRAINT "PK_ee34f4f7ced4ec8681f26bf04ef" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_d509884ac07d8237a19e1b1a0d" ON "conversations" ("workspace_id", "contact_id", "channel") `);
+        await queryRunner.query(`CREATE INDEX "IDX_8d660e90e83d4d77686ccc6aeb" ON "conversations" ("workspace_id", "last_message_at") `);
+        await queryRunner.query(`CREATE TABLE "messages" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "conversation_id" uuid NOT NULL, "direction" character varying(10) NOT NULL, "channel" character varying(20) NOT NULL, "body" text NOT NULL, "from_address" character varying(255) NOT NULL DEFAULT '', "to_address" character varying(255) NOT NULL DEFAULT '', "status" character varying(20) NOT NULL DEFAULT 'queued', "provider_message_id" character varying(255), "error" text, "sent_by" uuid, CONSTRAINT "PK_18325f38ae6de43878487eff986" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_8584a1974e1ca95f4861d975ff" ON "messages" ("conversation_id", "created_at") `);
+        await queryRunner.query(`CREATE TABLE "audit_logs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid, "user_id" uuid, "action" character varying NOT NULL, "entity_type" character varying, "entity_id" character varying, "metadata" jsonb, "ip_address" character varying, CONSTRAINT "PK_1bb179d048bbc581caa3b013439" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_bd2726fd31b35443f2245b93ba" ON "audit_logs" ("user_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_e140f8ddef870ea93925f251f2" ON "audit_logs" ("workspace_id") `);
+        await queryRunner.query(`CREATE TABLE "api_keys" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "name" character varying NOT NULL, "keyHash" character varying NOT NULL, "key_prefix" character varying NOT NULL, "workspace_id" uuid NOT NULL, "last_used_at" TIMESTAMP WITH TIME ZONE, "revoked_at" TIMESTAMP WITH TIME ZONE, CONSTRAINT "UQ_df3b25181df0b4b59bd93f16e10" UNIQUE ("keyHash"), CONSTRAINT "PK_5c8a79801b44bd27b79228e1dad" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "activities" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "deleted_at" TIMESTAMP WITH TIME ZONE, "workspace_id" uuid NOT NULL, "type" character varying(50) NOT NULL, "description" text NOT NULL, "entity_type" character varying(50), "entity_id" uuid, "user_id" uuid, CONSTRAINT "PK_7f4004429f731ffb9c88eb486a8" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_789eee36df14bb2a655b087404" ON "activities" ("workspace_id", "created_at") `);
+        await queryRunner.query(`ALTER TABLE "invitations" ADD CONSTRAINT "FK_37d2c3ed527014368be5302bdec" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "invitations" ADD CONSTRAINT "FK_29b1cef6891d9b9d4e35f793b81" FOREIGN KEY ("invited_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "users" ADD CONSTRAINT "FK_614e8f90993d5e1bfa7f4ef07d1" FOREIGN KEY ("current_organization_id") REFERENCES "organizations"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "workspace_members" ADD CONSTRAINT "FK_4e83431119fa585fc7aa8b817db" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "workspace_members" ADD CONSTRAINT "FK_4a7c584ddfe855379598b5e20fd" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "workspaces" ADD CONSTRAINT "FK_8b3a554dcc6c20e145f15a22e75" FOREIGN KEY ("organization_id") REFERENCES "organizations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "sessions" ADD CONSTRAINT "FK_085d540d9f418cfbdc7bd55bb19" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "roles" ADD CONSTRAINT "FK_5291e7ee78e540217bd44bd3688" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "pipeline_stages" ADD CONSTRAINT "FK_37b689c446ebe79ecd37e445735" FOREIGN KEY ("pipeline_id") REFERENCES "pipelines"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "role_permissions" ADD CONSTRAINT "FK_178199805b901ccd220ab7740ec" FOREIGN KEY ("role_id") REFERENCES "roles"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "contacts" ADD CONSTRAINT "FK_b53945f3dfe982678bfeb5e1b4f" FOREIGN KEY ("company_id") REFERENCES "companies"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "opportunities" ADD CONSTRAINT "FK_4b83e10e8719b1cbb59c7cdabdd" FOREIGN KEY ("contact_id") REFERENCES "contacts"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "opportunities" ADD CONSTRAINT "FK_6b809748751441914b5a7068cc5" FOREIGN KEY ("stage_id") REFERENCES "pipeline_stages"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "conversations" ADD CONSTRAINT "FK_3e605129623b629ddd0583740db" FOREIGN KEY ("contact_id") REFERENCES "contacts"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "messages" ADD CONSTRAINT "FK_3bc55a7c3f9ed54b520bb5cfe23" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" ADD CONSTRAINT "FK_e140f8ddef870ea93925f251f26" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" ADD CONSTRAINT "FK_bd2726fd31b35443f2245b93ba0" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "api_keys" ADD CONSTRAINT "FK_deb68fe8625b21785d1c48283e4" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "api_keys" DROP CONSTRAINT "FK_deb68fe8625b21785d1c48283e4"`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" DROP CONSTRAINT "FK_bd2726fd31b35443f2245b93ba0"`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" DROP CONSTRAINT "FK_e140f8ddef870ea93925f251f26"`);
+        await queryRunner.query(`ALTER TABLE "messages" DROP CONSTRAINT "FK_3bc55a7c3f9ed54b520bb5cfe23"`);
+        await queryRunner.query(`ALTER TABLE "conversations" DROP CONSTRAINT "FK_3e605129623b629ddd0583740db"`);
+        await queryRunner.query(`ALTER TABLE "opportunities" DROP CONSTRAINT "FK_6b809748751441914b5a7068cc5"`);
+        await queryRunner.query(`ALTER TABLE "opportunities" DROP CONSTRAINT "FK_4b83e10e8719b1cbb59c7cdabdd"`);
+        await queryRunner.query(`ALTER TABLE "contacts" DROP CONSTRAINT "FK_b53945f3dfe982678bfeb5e1b4f"`);
+        await queryRunner.query(`ALTER TABLE "role_permissions" DROP CONSTRAINT "FK_178199805b901ccd220ab7740ec"`);
+        await queryRunner.query(`ALTER TABLE "pipeline_stages" DROP CONSTRAINT "FK_37b689c446ebe79ecd37e445735"`);
+        await queryRunner.query(`ALTER TABLE "roles" DROP CONSTRAINT "FK_5291e7ee78e540217bd44bd3688"`);
+        await queryRunner.query(`ALTER TABLE "sessions" DROP CONSTRAINT "FK_085d540d9f418cfbdc7bd55bb19"`);
+        await queryRunner.query(`ALTER TABLE "workspaces" DROP CONSTRAINT "FK_8b3a554dcc6c20e145f15a22e75"`);
+        await queryRunner.query(`ALTER TABLE "workspace_members" DROP CONSTRAINT "FK_4a7c584ddfe855379598b5e20fd"`);
+        await queryRunner.query(`ALTER TABLE "workspace_members" DROP CONSTRAINT "FK_4e83431119fa585fc7aa8b817db"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP CONSTRAINT "FK_614e8f90993d5e1bfa7f4ef07d1"`);
+        await queryRunner.query(`ALTER TABLE "invitations" DROP CONSTRAINT "FK_29b1cef6891d9b9d4e35f793b81"`);
+        await queryRunner.query(`ALTER TABLE "invitations" DROP CONSTRAINT "FK_37d2c3ed527014368be5302bdec"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_789eee36df14bb2a655b087404"`);
+        await queryRunner.query(`DROP TABLE "activities"`);
+        await queryRunner.query(`DROP TABLE "api_keys"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e140f8ddef870ea93925f251f2"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_bd2726fd31b35443f2245b93ba"`);
+        await queryRunner.query(`DROP TABLE "audit_logs"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8584a1974e1ca95f4861d975ff"`);
+        await queryRunner.query(`DROP TABLE "messages"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8d660e90e83d4d77686ccc6aeb"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d509884ac07d8237a19e1b1a0d"`);
+        await queryRunner.query(`DROP TABLE "conversations"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_6dca5ac7fd096897f35be8f188"`);
+        await queryRunner.query(`DROP TABLE "opportunities"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_37aee5a1b7b1ab5f21fa7cc283"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d2f97502095e6219f66797a97a"`);
+        await queryRunner.query(`DROP TABLE "contacts"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_aafdf4e56e838bc1b592ad4d68"`);
+        await queryRunner.query(`DROP TABLE "companies"`);
+        await queryRunner.query(`DROP TABLE "role_permissions"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_94a5878a03f707617b38b20c66"`);
+        await queryRunner.query(`DROP TABLE "pipelines"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_860777f3eb94ace40de2cc82e6"`);
+        await queryRunner.query(`DROP TABLE "pipeline_stages"`);
+        await queryRunner.query(`DROP TABLE "roles"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_085d540d9f418cfbdc7bd55bb1"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d6185b2849a1e4d0c067a57ca8"`);
+        await queryRunner.query(`DROP TABLE "sessions"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a32fba4416d80be14d70f41242"`);
+        await queryRunner.query(`DROP TABLE "workflow_runs"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e9fbaabbbb5d7968c42f11d221"`);
+        await queryRunner.query(`DROP TABLE "workflows"`);
+        await queryRunner.query(`DROP TABLE "workspaces"`);
+        await queryRunner.query(`DROP TABLE "workspace_members"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_97672ac88f789774dd47f7c8be"`);
+        await queryRunner.query(`DROP TABLE "users"`);
+        await queryRunner.query(`DROP TABLE "invitations"`);
+        await queryRunner.query(`DROP TABLE "organizations"`);
+    }
+
+}

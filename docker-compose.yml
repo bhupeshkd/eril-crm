@@ -1,0 +1,41 @@
+# ERIL local development infrastructure.
+# Requires Docker Desktop. The API/frontend run on the host (npm run dev).
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eril-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_DATABASE:-eril}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - eril_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d ${DB_DATABASE:-eril}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: eril-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - eril_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  eril_pg_data:
+  eril_redis_data:

@@ -1,0 +1,30 @@
+{
+  "name": "eril",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ERIL - All-in-One Business Operating System",
+  "workspaces": [
+    "shared",
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build:shared": "npm run build --workspace @eril/shared",
+    "build:backend": "npm run build --workspace eril-backend",
+    "build:frontend": "npm run build --workspace eril-frontend",
+    "build": "npm run build:shared && npm run build:backend && npm run build:frontend",
+    "dev:backend": "npm run dev --workspace eril-backend",
+    "dev:frontend": "npm run dev --workspace eril-frontend",
+    "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:backend\" \"npm:dev:frontend\"",
+    "migration:run": "npm run migration:run --workspace eril-backend",
+    "migration:revert": "npm run migration:revert --workspace eril-backend",
+    "seed": "npm run seed --workspace eril-backend",
+    "test": "npm run test --workspace eril-backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
