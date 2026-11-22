@@ -1,47 +1,61 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { REPEATABLE_WIDGETS, WIDGET_TYPES, type Widget, type WidgetType } from '@eril/shared';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { useUi } from '@/lib/appearance';
 import { Modal, Spinner, errorText, useToast } from '@/components/ui';
 import { Icon } from '@/components/icons';
+import { ColorField, Slider } from '@/components/color-field';
+import { SPAN, WIDGET_META, WidgetBody, widgetSurface, type Overview } from '@/components/overview-widgets';
 
-interface Overview {
-  currency: string;
-  target: number | null;
-  won: { thisMonth: number; lastMonth: number; deals: number; changePct: number | null; targetPct: number | null };
-  pipeline: { value: number; deals: number; weighted: number };
-  winRate: { won: number; closed: number; pct: number | null };
-  months: Array<{ month: string; won: number }>;
-  stages: Array<{ id: string; name: string; deals: number; value: number }>;
-  nextBestMove: { id: string; title: string; value: number; closeDate: string | null; stage: string; probability: number; contact: string; company: string | null } | null;
-  today: Array<{ id: string; title: string; dueAt: string; contact: string; contactId: string | null }>;
-  counts: { overdue: number; tasksToday: number; appointmentsToday: number };
-  leaderboard: Array<{ id: string; name: string; deals: number; won: number; sharePct: number }>;
-}
-
-const money = (n: number, currency: string, compact = false) =>
-  new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0, ...(compact ? { notation: 'compact' as const } : {}) }).format(n);
 const greeting = () => {
   const h = new Date().getHours();
   return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
 };
-const initials = (s: string) => s.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('') || '?';
-const AVATARS = ['bg-[#5B9EE1]', 'bg-[#8FB65A]', 'bg-[#E0936F]', 'bg-[#C5A94F]'];
+const SIZE_LABELS: Array<[Widget['size'], string]> = [['s', 'S'], ['m', 'M'], ['l', 'L'], ['xl', 'XL'], ['full', 'Full']];
+const TINT_CHOICES: Array<[Widget['tint'], string, string]> = [
+  ['none', 'Glass', 'var(--glass)'],
+  ['sky', 'Sky', 'var(--tint-sky)'],
+  ['sage', 'Sage', 'var(--tint-sage)'],
+  ['peach', 'Peach', 'var(--tint-peach)'],
+  ['neutral', 'Neutral', 'var(--tint-neutral)'],
+  ['lime', 'Accent', 'color-mix(in srgb, var(--accent) 45%, var(--glass))'],
+];
 
-/** Overview: a calm bento of this month's results, the pipeline, and what to do today. */
+/** Overview: a bento of widgets each person arranges, sizes and colours for themselves. */
 export default function OverviewPage() {
   const { me, can } = useAuth();
+  const ui = useUi();
   const toast = useToast();
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState('');
   const [targetOpen, setTargetOpen] = useState(false);
+  const [widgets, setWidgets] = useState<Widget[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [styling, setStyling] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const dragId = useRef<string | null>(null);
 
   const load = useCallback(() => {
     api<Overview>('/dashboard/overview').then(setData).catch((e) => setError(errorText(e)));
   }, []);
   useEffect(load, [load]);
+
+  // The saved layout (kept in sync unless mid-edit).
+  useEffect(() => {
+    if (ui.prefs && !editing) setWidgets(ui.prefs.widgets);
+  }, [ui.prefs, editing]);
+  // ?customize=1 (from the Customize page) opens edit mode.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('customize') === '1') {
+      setEditing(true);
+      window.history.replaceState(null, '', '/dashboard');
+    }
+  }, []);
 
   async function complete(id: string) {
     setData((d) => (d ? { ...d, today: d.today.filter((t) => t.id !== id) } : d));
@@ -55,11 +69,82 @@ export default function OverviewPage() {
   }
 
   if (error) return <div className="card p-6 text-sm text-rose-600">{error}</div>;
-  if (!data || !me) return <div className="grid h-64 place-items-center"><Spinner /></div>;
-  const c = data.currency;
+  if (!data || !me || !widgets) return <div className="grid h-64 place-items-center"><Spinner /></div>;
   const current = me.workspaceMemberships.find((m) => m.workspaceId === me.currentWorkspaceId);
   const date = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const activitiesToday = data.counts.tasksToday + data.counts.appointmentsToday;
+
+  const patch = (id: string, p: Partial<Widget>) => setWidgets((ws) => ws!.map((w) => (w.id === id ? { ...w, ...p } : w)));
+  const move = (id: string, dir: -1 | 1) =>
+    setWidgets((ws) => {
+      const list = [...ws!];
+      const i = list.findIndex((w) => w.id === id);
+      const j = i + dir;
+      if (j < 0 || j >= list.length) return list;
+      [list[i], list[j]] = [list[j], list[i]];
+      return list;
+    });
+  const dropOn = (targetId: string) =>
+    setWidgets((ws) => {
+      const from = dragId.current;
+      if (!from || from === targetId) return ws;
+      const list = [...ws!];
+      const item = list.splice(list.findIndex((w) => w.id === from), 1)[0];
+      list.splice(list.findIndex((w) => w.id === targetId), 0, item);
+      return list;
+    });
+  const remove = (id: string) => setWidgets((ws) => ws!.filter((w) => w.id !== id));
+  const add = (type: WidgetType) => {
+    const m = WIDGET_META[type];
+    const taken = new Set(widgets.map((w) => w.id));
+    const id = !taken.has(type) ? type : `${type}-${Date.now().toString(36)}`;
+    const w: Widget = { id, type, size: m.size, tint: m.tint, ...(type === 'note' ? { config: { text: '' } } : type === 'shortcuts' ? { config: { links: ['/pipeline', '/contacts', '/inbox', '/tasks'] } } : {}) };
+    setWidgets([...widgets, w]);
+    setLibraryOpen(false);
+    toast(`${m.name} added`);
+  };
+
+  const save = async (list = widgets) => {
+    setBusy(true);
+    try {
+      setWidgets(await ui.saveLayout(list));
+      setEditing(false);
+      setStyling(null);
+      toast('Overview saved');
+    } catch (e) {
+      toast(errorText(e), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancel = () => {
+    setWidgets(ui.prefs!.widgets);
+    setEditing(false);
+    setStyling(null);
+  };
+  const reset = async () => {
+    if (!confirm('Reset the Overview to the default widgets? Your notes and shortcuts will be removed.')) return;
+    setBusy(true);
+    try {
+      setWidgets(await ui.resetLayout());
+      setEditing(false);
+      setStyling(null);
+      toast('Overview reset');
+    } catch (e) {
+      toast(errorText(e), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  /** Notes edited outside customize mode save straight away. */
+  const saveConfig = (id: string, config: Widget['config']) => {
+    const next = widgets.map((w) => (w.id === id ? { ...w, config } : w));
+    setWidgets(next);
+    if (!editing) ui.saveLayout(next).then(setWidgets).catch((e) => toast(errorText(e), 'error'));
+  };
+
+  const present = new Set(widgets.map((w) => w.type));
+  const available = WIDGET_TYPES.filter((t) => REPEATABLE_WIDGETS.includes(t) || !present.has(t));
 
   return (
     <div className="space-y-4">
@@ -73,216 +158,123 @@ export default function OverviewPage() {
             {current?.workspaceName} · {date} · <span className={data.counts.overdue ? 'font-medium text-[#B4502F]' : ''}>{data.counts.overdue} overdue</span>, {activitiesToday} {activitiesToday === 1 ? 'activity' : 'activities'} today
           </p>
         </div>
-        <div className="flex gap-2">
-          {can('analytics:read') && <Link href="/reporting" className="btn-secondary h-10"><Icon name="reporting" className="h-4 w-4" /> Reports</Link>}
-          {can('opportunities:write') && <Link href="/pipeline?new=1" className="btn-primary h-10"><Icon name="plus" className="h-4 w-4" /> New deal</Link>}
-        </div>
+        {!editing && (
+          <div className="flex flex-wrap gap-2">
+            <button className="btn-secondary h-10" onClick={() => setEditing(true)}><Icon name="layers" className="h-4 w-4" /> Customize</button>
+            {can('analytics:read') && <Link href="/reporting" className="btn-secondary h-10"><Icon name="reporting" className="h-4 w-4" /> Reports</Link>}
+            {can('opportunities:write') && <Link href="/pipeline?new=1" className="btn-primary h-10"><Icon name="plus" className="h-4 w-4" /> New deal</Link>}
+          </div>
+        )}
       </div>
 
-      {/* Row 1: KPIs */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Kpi tint="tint-sky" label="Won this month" value={money(data.won.thisMonth, c)}>
-          {data.target ? (
-            <>
-              <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-black/10">
-                <div className="h-full rounded-full bg-[#181a18]" style={{ width: `${Math.min(100, data.won.targetPct ?? 0)}%` }} />
-              </div>
-              <p className="mt-2 text-[12px] text-muted num">
-                {data.won.targetPct}% of target{data.won.changePct !== null && <> · <Trend pct={data.won.changePct} /> vs last month</>}
-                {can('workspaces:write') && <button className="ml-1 underline-offset-2 hover:underline" onClick={() => setTargetOpen(true)}>Edit</button>}
-              </p>
-            </>
-          ) : (
-            <p className="mt-3 text-[12px] text-muted">
-              {data.won.deals} deal{data.won.deals === 1 ? '' : 's'}{data.won.changePct !== null && <> · <Trend pct={data.won.changePct} /> vs last month</>}
-              {can('workspaces:write') && <> · <button className="font-medium text-ink underline-offset-2 hover:underline" onClick={() => setTargetOpen(true)}>Set a target</button></>}
-            </p>
-          )}
-        </Kpi>
-        <Kpi tint="tint-sage" label="Open pipeline" value={money(data.pipeline.value, c)}>
-          <p className="mt-3 text-[12px] text-muted num">{data.pipeline.deals} open deal{data.pipeline.deals === 1 ? '' : 's'}</p>
-        </Kpi>
-        <Kpi tint="tint-peach" label="Weighted forecast" value={money(data.pipeline.weighted, c)}>
-          <p className="mt-3 text-[12px] text-muted">by stage probability</p>
-        </Kpi>
-        <Kpi tint="tint-neutral" label="Win rate" value={data.winRate.pct === null ? '—' : `${data.winRate.pct}%`}>
-          <p className="mt-3 text-[12px] text-muted num">{data.winRate.closed ? `${data.winRate.won} of ${data.winRate.closed} closed deals won` : 'No closed deals yet'}</p>
-        </Kpi>
-      </div>
-
-      {/* Row 2: revenue + stages */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <section className="card p-5 lg:col-span-8">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <h2 className="text-[15px] font-semibold text-ink">Revenue won</h2>
-              <p className="text-[12px] text-muted">Last 12 months{data.target ? ' against the monthly target' : ''}</p>
-            </div>
-            <div className="flex items-center gap-3 text-[12px] text-muted">
-              <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#5B9EE1]" /> Won</span>
-              {data.target && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-[#181a18]/50" /> Target</span>}
-            </div>
-          </div>
-          <RevenueChart months={data.months} target={data.target} currency={c} />
-        </section>
-        <section className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-[15px] font-semibold text-ink">Pipeline by stage</h2>
-              <p className="text-[12px] text-muted">Value in each stage</p>
-            </div>
-            <Link href="/pipeline" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Board <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
-          </div>
-          <StageBars stages={data.stages} currency={c} />
-        </section>
-      </div>
-
-      {/* Row 3: today */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
-        <section className="flex flex-col rounded-[22px] border border-[var(--glass-border)] p-5 tint-sage lg:col-span-4" style={{ backdropFilter: 'blur(20px)' }}>
-          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink/70">◎ Next best move</div>
-          {data.nextBestMove ? (
-            <>
-              <div className="mt-3 text-[20px] font-bold leading-snug text-ink">{data.nextBestMove.title}</div>
-              <div className="mt-1 text-[13px] text-ink/70">
-                {[data.nextBestMove.company || data.nextBestMove.contact, data.nextBestMove.stage, data.nextBestMove.closeDate ? `closes ${new Date(data.nextBestMove.closeDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : null].filter(Boolean).join(' · ')}
-              </div>
-              <div className="mt-4 text-[28px] font-bold tracking-[-0.03em] text-ink num">{money(data.nextBestMove.value, c)}</div>
-              <div className="text-[12px] text-ink/70 num">{data.nextBestMove.probability}% likely to close</div>
-              <div className="flex-1" />
-              <Link href={`/pipeline?deal=${data.nextBestMove.id}`} className="btn-primary mt-5 h-11 w-full">Open deal <Icon name="chevronRight" className="h-4 w-4" /></Link>
-            </>
-          ) : (
-            <p className="mt-3 text-sm text-ink/70">No open deals right now. Add one to see what to focus on.</p>
-          )}
-        </section>
-
-        <section className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-[15px] font-semibold text-ink">Today</h2>
-              <p className="text-[12px] text-muted num">{data.today.length} to do</p>
-            </div>
-            <Link href="/tasks" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Agenda <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
-          </div>
-          {data.today.length === 0 ? (
-            <p className="mt-6 text-center text-sm text-muted">Nothing due today. 🎉</p>
-          ) : (
-            <ul className="mt-3 space-y-1">
-              {data.today.map((t) => {
-                const overdue = new Date(t.dueAt) < new Date(new Date().setHours(0, 0, 0, 0));
-                return (
-                  <li key={t.id} className="flex items-start gap-3 rounded-2xl px-2 py-2 hover:bg-[var(--track)]">
-                    <input type="checkbox" aria-label={`Mark "${t.title}" done`} className="mt-0.5" onChange={() => complete(t.id)} disabled={!can('contacts:write')} />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] font-medium text-ink">{t.title}</div>
-                      <div className={`truncate text-[12px] num ${overdue ? 'text-[#B4502F]' : 'text-muted'}`}>
-                        {overdue ? `Overdue · ${new Date(t.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}` : new Date(t.dueAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        {t.contact ? ` · ${t.contact}` : ''}
-                      </div>
-                    </div>
-                    <Icon name="tasks" className="mt-0.5 h-4 w-4 text-muted" />
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-
-        <section className="card p-5 lg:col-span-4">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-[15px] font-semibold text-ink">Leaderboard</h2>
-              <p className="text-[12px] text-muted">Won this month</p>
-            </div>
-            <Link href="/settings" className="flex items-center gap-0.5 text-[13px] font-medium text-ink hover:underline">Team <Icon name="chevronRight" className="h-3.5 w-3.5" /></Link>
-          </div>
-          {data.leaderboard.length === 0 ? (
-            <p className="mt-6 text-center text-sm text-muted">No deals won yet this month. Wins are credited to the contact&apos;s owner.</p>
-          ) : (
-            <ol className="mt-3 space-y-1">
-              {data.leaderboard.map((l, i) => (
-                <li key={l.id} className="flex items-center gap-3 rounded-2xl px-2 py-2">
-                  <span className="w-4 text-center text-[13px] font-semibold text-muted num">{i + 1}</span>
-                  <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-xs font-semibold text-white ${AVATARS[i % AVATARS.length]}`}>{initials(l.name)}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-ink">{l.name}</div>
-                    <div className="text-[12px] text-muted num">{l.sharePct}% of team · {l.deals} deal{l.deals === 1 ? '' : 's'}</div>
-                  </div>
-                  <span className="text-[14px] font-semibold text-ink num">{money(l.won, c)}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      </div>
-
-      {targetOpen && <TargetModal current={data.target} currency={c} onClose={() => setTargetOpen(false)} onSaved={() => { setTargetOpen(false); load(); }} />}
-    </div>
-  );
-}
-
-function Kpi({ tint, label, value, children }: { tint: string; label: string; value: string; children?: React.ReactNode }) {
-  return (
-    <section className={`rounded-[22px] border border-[var(--glass-border)] p-5 ${tint}`} style={{ backdropFilter: 'blur(20px)' }}>
-      <div className="text-[13px] font-medium text-ink/75">{label}</div>
-      <div className="mt-2 text-[30px] font-bold leading-none tracking-[-0.03em] text-ink num md:text-[34px]">{value}</div>
-      {children}
-    </section>
-  );
-}
-
-function Trend({ pct }: { pct: number }) {
-  return <span className={pct >= 0 ? 'font-medium text-[#3F7A12]' : 'font-medium text-[#B4502F]'}>{pct >= 0 ? '↗' : '↘'} {pct >= 0 ? '+' : ''}{pct}%</span>;
-}
-
-/** 12 rounded columns in full-height tracks; dashed target line; the current month in lime. */
-function RevenueChart({ months, target, currency }: { months: Overview['months']; target: number | null; currency: string }) {
-  const max = Math.max(1, target ?? 0, ...months.map((m) => m.won)) * 1.1;
-  const label = (k: string) => new Date(`${k}-15T00:00:00Z`).toLocaleDateString(undefined, { month: 'short' });
-  return (
-    <div className="relative mt-5 h-56">
-      {target !== null && (
-        <div className="pointer-events-none absolute inset-x-0 z-10 border-t-2 border-dashed border-[#181a18]/40" style={{ bottom: `calc(${(target / max) * 100}% * (192 / 224) + 32px)` }}>
-          <span className="absolute -top-5 right-0 rounded-full bg-[var(--pill)] px-2 text-[11px] text-muted num">{new Intl.NumberFormat(undefined, { style: 'currency', currency, notation: 'compact' }).format(target)}</span>
+      {/* Customize toolbar */}
+      {editing && (
+        <div className="glass sticky top-[72px] z-20 flex flex-wrap items-center gap-2 rounded-full py-2 pl-5 pr-2 shadow-pop" role="toolbar" aria-label="Customize Overview">
+          <span className="mr-auto text-[13px] text-ink"><b>Customizing</b> <span className="hidden text-muted sm:inline">· drag widgets to reorder, or use the arrows</span></span>
+          <button className="btn-secondary h-9" onClick={() => setLibraryOpen(true)}><Icon name="plus" className="h-4 w-4" /> Add widget</button>
+          <Link href="/appearance" className="btn-ghost h-9"><Icon name="sparkles" className="h-4 w-4" /> Theme</Link>
+          <button className="btn-ghost h-9" disabled={busy} onClick={reset}>Reset</button>
+          <button className="btn-ghost h-9" onClick={cancel}>Cancel</button>
+          <button className="btn-primary h-9" disabled={busy} onClick={() => save()}>{busy ? 'Saving…' : 'Save'}</button>
         </div>
       )}
-      <div className="grid h-full grid-cols-12 gap-1.5 sm:gap-2.5" role="img" aria-label="Revenue won per month for the last 12 months">
-        {months.map((m, i) => {
-          const isNow = i === months.length - 1;
-          return (
-            <div key={m.month} className="flex h-full flex-col items-center gap-2" title={`${label(m.month)}: ${new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(m.won)}`}>
-              <div className="relative flex h-48 w-full items-end overflow-hidden rounded-xl" style={{ background: 'var(--track)' }}>
-                <div className={`w-full rounded-t-xl transition-all ${isNow ? 'bg-[#A3D929]' : 'bg-[#5B9EE1]'}`} style={{ height: `${(m.won / max) * 100}%`, minHeight: m.won ? 6 : 0 }} />
-              </div>
-              <span className={`text-[11px] ${isNow ? 'font-bold text-ink' : 'text-muted'}`}>{label(m.month)}</span>
-            </div>
-          );
-        })}
-      </div>
+
+      {widgets.length === 0 ? (
+        <div className="card grid place-items-center gap-3 p-10 text-center">
+          <p className="text-sm text-muted">Your Overview is empty.</p>
+          <button className="btn-primary" onClick={() => { setEditing(true); setLibraryOpen(true); }}><Icon name="plus" className="h-4 w-4" /> Add a widget</button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-6 lg:grid-cols-12">
+          {widgets.map((w, i) => {
+            const surf = widgetSurface(w);
+            return (
+              <section
+                key={w.id}
+                className={`relative flex flex-col p-5 ${surf.className} ${SPAN[w.size]} ${editing ? 'cursor-grab outline-dashed outline-2 outline-offset-2 outline-[var(--accent)] active:cursor-grabbing' : ''}`}
+                style={surf.style}
+                draggable={editing}
+                onDragStart={(e) => { dragId.current = w.id; e.dataTransfer.effectAllowed = 'move'; }}
+                onDragOver={(e) => editing && e.preventDefault()}
+                onDrop={(e) => { e.preventDefault(); dropOn(w.id); dragId.current = null; }}
+                aria-label={editing ? `${w.title || WIDGET_META[w.type].name} widget` : undefined}
+              >
+                {editing && (
+                  <div className="-mx-2 -mt-2 mb-3 flex items-center gap-0.5 rounded-2xl bg-[var(--pill)] p-1 text-ink shadow-sm" style={{ color: '#181a18', ['--ink' as string]: '#181a18', ['--muted' as string]: '#5c605c' }}>
+                    <span className="shrink-0 px-1 text-muted" aria-hidden>⋮⋮</span>
+                    <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{WIDGET_META[w.type].name}</span>
+                    <button className="btn-ghost h-7 w-7 px-0" aria-label="Move earlier" disabled={i === 0} onClick={() => move(w.id, -1)}><Icon name="chevronDown" className="h-3.5 w-3.5 rotate-90" /></button>
+                    <button className="btn-ghost h-7 w-7 px-0" aria-label="Move later" disabled={i === widgets.length - 1} onClick={() => move(w.id, 1)}><Icon name="chevronDown" className="h-3.5 w-3.5 -rotate-90" /></button>
+                    <select aria-label="Widget size" className="h-7 rounded-full border border-black/10 bg-white px-2 text-[12px]" value={w.size} onChange={(e) => patch(w.id, { size: e.target.value as Widget['size'] })}>
+                      {SIZE_LABELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                    <button className="btn-ghost h-7 w-7 px-0" aria-label="Colour and title" aria-expanded={styling === w.id} onClick={() => setStyling(styling === w.id ? null : w.id)}><Icon name="sparkles" className="h-3.5 w-3.5" /></button>
+                    <button className="btn-ghost h-7 w-7 px-0" aria-label="Remove widget" onClick={() => remove(w.id)}><Icon name="close" className="h-3.5 w-3.5" /></button>
+                  </div>
+                )}
+                {editing && styling === w.id && <StylePanel w={w} onChange={(p) => patch(w.id, p)} />}
+                <WidgetBody w={w} data={data} editing={editing} onConfig={(cfg) => saveConfig(w.id, cfg)} onCompleteTask={complete} onEditTarget={() => setTargetOpen(true)} />
+              </section>
+            );
+          })}
+        </div>
+      )}
+
+      {libraryOpen && (
+        <Modal open wide title="Add a widget" onClose={() => setLibraryOpen(false)}>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {available.map((t) => {
+              const m = WIDGET_META[t];
+              return (
+                <button key={t} className="flex items-start gap-3 rounded-2xl border border-[var(--glass-line)] p-3 text-left transition hover:bg-[var(--track)]" onClick={() => add(t)}>
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl" style={{ background: 'color-mix(in srgb, var(--accent) 30%, transparent)' }}><Icon name={m.icon} className="h-4 w-4 text-ink" /></span>
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-semibold text-ink">{m.name}</span>
+                    <span className="block text-[12px] text-muted">{m.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {available.length === 0 && <p className="text-sm text-muted">Every widget is already on your Overview.</p>}
+        </Modal>
+      )}
+
+      {targetOpen && <TargetModal current={data.target} currency={data.currency} onClose={() => setTargetOpen(false)} onSaved={() => { setTargetOpen(false); load(); }} />}
     </div>
   );
 }
 
-function StageBars({ stages, currency }: { stages: Overview['stages']; currency: string }) {
-  const max = Math.max(1, ...stages.map((s) => s.value));
-  if (!stages.length) return <p className="mt-6 text-center text-sm text-muted">No pipeline yet.</p>;
+/** Per-widget colour (preset tint or own colour/gradient) and title. */
+function StylePanel({ w, onChange }: { w: Widget; onChange: (p: Partial<Widget>) => void }) {
+  const custom = w.tint === 'custom' && w.style;
   return (
-    <ul className="mt-4 space-y-4">
-      {stages.map((s, i) => {
-        const won = /won/i.test(s.name);
-        const color = won ? '#B6E633' : i === 0 ? '#D8C380' : '#5B9EE1';
-        return (
-          <li key={s.id}>
-            <div className="mb-1.5 flex items-baseline justify-between gap-2 text-[13px]">
-              <span className="truncate font-medium text-ink">{s.name} <span className="font-normal text-muted num">· {s.deals}</span></span>
-              <span className="font-semibold text-ink num">{new Intl.NumberFormat(undefined, { style: 'currency', currency, maximumFractionDigits: 0 }).format(s.value)}</span>
-            </div>
-            <div className="progress-track"><div className="h-full rounded-full" style={{ width: `${(s.value / max) * 100}%`, background: color, minWidth: s.value ? 8 : 0 }} /></div>
-          </li>
-        );
-      })}
-    </ul>
+    <div className="-mx-2 mb-3 space-y-3 rounded-2xl bg-[var(--glass-strong)] p-3 text-[#181a18] shadow-sm" style={{ ['--ink' as string]: '#181a18', ['--muted' as string]: '#5c605c' }}>
+      <div>
+        <label className="label" htmlFor={`wt-${w.id}`}>Title</label>
+        <input id={`wt-${w.id}`} className="input h-8" maxLength={60} placeholder={WIDGET_META[w.type].name} value={w.title ?? ''} onChange={(e) => onChange({ title: e.target.value || undefined })} />
+      </div>
+      <div>
+        <div className="mb-1.5 text-[13px] font-medium text-muted">Colour</div>
+        <div className="flex flex-wrap gap-1.5">
+          {TINT_CHOICES.map(([v, l, bg]) => (
+            <button key={v} type="button" aria-pressed={w.tint === v} onClick={() => onChange({ tint: v, style: undefined })} className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[12px] ${w.tint === v ? 'border-[#181a18]' : 'border-black/10'}`}>
+              <span className="h-3.5 w-3.5 rounded-full border border-black/10" style={{ background: bg }} /> {l}
+            </button>
+          ))}
+          <button type="button" aria-pressed={!!custom} onClick={() => onChange({ tint: 'custom', style: w.style ?? { from: '#5b9ee1', to: '#a78bfa', angle: 135 } })} className={`flex items-center gap-1.5 rounded-full border px-2 py-1 text-[12px] ${custom ? 'border-[#181a18]' : 'border-black/10'}`}>
+            <span className="h-3.5 w-3.5 rounded-full" style={{ background: 'conic-gradient(#f43f5e, #facc15, #34d399, #38bdf8, #a78bfa, #f43f5e)' }} /> Custom
+          </button>
+        </div>
+      </div>
+      {custom && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ColorField id={`wf-${w.id}`} label="Colour" value={w.style!.from} swatches={false} onChange={(c) => onChange({ style: { ...w.style!, from: c } })} />
+          <ColorField id={`wto-${w.id}`} label="Gradient to" value={w.style!.to} swatches={false} onChange={(c) => onChange({ style: { ...w.style!, to: c } })} onClear={() => onChange({ style: { ...w.style!, to: null } })} clearLabel="Solid" />
+          {w.style!.to && <div className="sm:col-span-2"><Slider label="Direction" value={w.style!.angle} min={0} max={360} unit="°" onChange={(v) => onChange({ style: { ...w.style!, angle: v } })} /></div>}
+        </div>
+      )}
+    </div>
   );
 }
 

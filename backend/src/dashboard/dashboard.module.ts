@@ -2,6 +2,8 @@ import { Controller, Get, Injectable, Module } from '@nestjs/common';
 import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { Workspace } from '../database/entities/workspace.entity';
 import { OverviewController, OverviewService } from './overview';
+import { UiPreferencesController, UiPreferencesService } from './ui-preferences';
+import { UiPreference } from '../database/entities/ui-preference.entity';
 import { Repository } from 'typeorm';
 import { Contact } from '../database/entities/contact.entity';
 import { Opportunity } from '../database/entities/opportunity.entity';
@@ -92,8 +94,8 @@ export class DashboardController {
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Contact, Opportunity, Workflow, Conversation, Workspace])],
-  controllers: [DashboardController, OverviewController],
-  providers: [DashboardService, OverviewService],
+  imports: [TypeOrmModule.forFeature([Contact, Opportunity, Workflow, Conversation, Workspace, UiPreference])],
+  controllers: [DashboardController, OverviewController, UiPreferencesController],
+  providers: [DashboardService, OverviewService, UiPreferencesService],
 })
 export class DashboardModule {}

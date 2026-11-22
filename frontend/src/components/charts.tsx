@@ -5,8 +5,9 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 /** Single-series chart primitives: thin marks, recessive axes, hover/focus tooltips, table view. */
 // Sky blue, matching the glass design system's chart colour.
 const C = {
-  series: '#5B9EE1',
-  seriesSoft: 'rgba(91,158,225,0.14)',
+  // Follows the person's chosen chart colour (Appearance studio).
+  series: 'var(--bar)',
+  seriesSoft: 'color-mix(in srgb, var(--bar) 14%, transparent)',
   grid: '#eef0f4',
   axis: '#94a3b8',
   text2: '#475569',
@@ -110,7 +111,7 @@ export function ColumnChart({ data, format = (v) => String(v), height = 200, ari
               {h > 0 && (
                 <path
                   d={`M${cx - barW / 2},${base} V${top + r} Q${cx - barW / 2},${top} ${cx - barW / 2 + r},${top} H${cx + barW / 2 - r} Q${cx + barW / 2},${top} ${cx + barW / 2},${top + r} V${base} Z`}
-                  fill={C.series}
+                  style={{ fill: C.series }}
                   opacity={hover === null || hover === i ? 1 : 0.55}
                 />
               )}
@@ -197,8 +198,8 @@ export function LineChart({ data, format = (v) => String(v), height = 200, ariaL
       >
         <defs>
           <linearGradient id={gid} x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0" stopColor={C.series} stopOpacity={0.18} />
-            <stop offset="1" stopColor={C.series} stopOpacity={0} />
+            <stop offset="0" style={{ stopColor: C.series }} stopOpacity={0.18} />
+            <stop offset="1" style={{ stopColor: C.series }} stopOpacity={0} />
           </linearGradient>
         </defs>
         {[0, max / 2, max].map((t) => (
@@ -208,12 +209,12 @@ export function LineChart({ data, format = (v) => String(v), height = 200, ariaL
           </g>
         ))}
         {data.length > 1 && <path d={`${path} L${x(data.length - 1)},${y(0)} L${x(0)},${y(0)} Z`} fill={`url(#${gid})`} />}
-        <path d={path} fill="none" stroke={C.series} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        <path d={path} fill="none" style={{ stroke: C.series }} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         {data.map((d, i) => i % every === 0 && <text key={i} x={x(i)} y={height - 6} textAnchor="middle" fontSize={10} fill={C.text3}>{d.label.slice(5)}</text>)}
         {hover !== null && (
           <g>
             <line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={y(0)} stroke={C.axis} strokeDasharray="3 3" />
-            <circle cx={x(hover)} cy={y(data[hover].value)} r={5} fill={C.series} stroke={C.surface} strokeWidth={2} />
+            <circle cx={x(hover)} cy={y(data[hover].value)} r={5} style={{ fill: C.series }} stroke={C.surface} strokeWidth={2} />
           </g>
         )}
       </svg>

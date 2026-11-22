@@ -40,6 +40,16 @@
   --bar: #5b9ee1;
   --bar-sand: #d8c380;
   --bar-lime: #a3d929;
+
+  /* ---- Customizable (Appearance studio sets these per profile) ---- */
+  --font-sans: 'Urbanist';
+  --font-heading: var(--font-sans);
+  --accent-fill: var(--accent);
+  --accent-fill-hover: var(--accent-hover);
+  --accent-ring: rgba(182, 230, 51, 0.45);
+  --glass-blur: 20px;
+  --radius: 22px;
+  --backdrop-blur: 28px;
 }
 
 /* ---- Dark: deep charcoal glass, the lime stays vivid ---- */
@@ -79,10 +89,11 @@ html[data-theme='dark'] {
   h2,
   h3 {
     @apply tracking-tight;
+    font-family: var(--font-heading), var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
   ::selection {
-    background: rgba(182, 230, 51, 0.45);
-    color: #181a18;
+    background: var(--accent-ring);
+    color: var(--ink);
   }
   * {
     scrollbar-width: thin;
@@ -116,23 +127,23 @@ html[data-theme='dark'] {
     position: fixed;
     inset: 0;
     z-index: -2;
-    background:
+    background: var(--backdrop,
       radial-gradient(60% 55% at 12% 18%, rgba(214, 196, 160, 0.95), transparent 70%),
       radial-gradient(45% 50% at 88% 12%, rgba(176, 196, 160, 0.85), transparent 70%),
       radial-gradient(55% 60% at 78% 82%, rgba(222, 178, 150, 0.8), transparent 72%),
       radial-gradient(50% 55% at 22% 88%, rgba(170, 190, 205, 0.8), transparent 70%),
       radial-gradient(35% 40% at 52% 48%, rgba(236, 226, 205, 0.9), transparent 75%),
-      #d9d4c8;
-    filter: blur(28px) saturate(1.05);
+      #d9d4c8);
+    filter: blur(var(--backdrop-blur)) saturate(1.05);
     transform: scale(1.08);
   }
   html[data-theme='dark'] .app-canvas::before {
-    background:
+    background: var(--backdrop,
       radial-gradient(60% 55% at 12% 18%, rgba(70, 64, 48, 0.9), transparent 70%),
       radial-gradient(45% 50% at 88% 12%, rgba(48, 66, 44, 0.85), transparent 70%),
       radial-gradient(55% 60% at 78% 82%, rgba(82, 52, 42, 0.75), transparent 72%),
       radial-gradient(50% 55% at 22% 88%, rgba(40, 56, 70, 0.8), transparent 70%),
-      #1a1c1a;
+      #1a1c1a);
   }
   .app-canvas::after {
     content: '';
@@ -148,19 +159,20 @@ html[data-theme='dark'] {
   .glass {
     background: var(--glass);
     border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(20px) saturate(1.1);
-    backdrop-filter: blur(20px) saturate(1.1);
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
+    backdrop-filter: blur(var(--glass-blur)) saturate(1.1);
   }
   .card {
-    @apply glass rounded-[22px];
+    @apply glass;
+    border-radius: var(--radius);
   }
   /* Dense data (tables): more opaque so rows stay crisp. */
   .card-solid {
-    @apply rounded-[22px];
+    border-radius: var(--radius);
     background: var(--glass-strong);
     border: 1px solid var(--glass-border);
-    -webkit-backdrop-filter: blur(20px);
-    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(var(--glass-blur));
+    backdrop-filter: blur(var(--glass-blur));
   }
   .card-hover {
     @apply transition duration-200 hover:-translate-y-px;
@@ -184,15 +196,15 @@ html[data-theme='dark'] {
       transition-all duration-150 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98];
   }
   .btn:focus-visible {
-    box-shadow: 0 0 0 3px rgba(182, 230, 51, 0.55);
+    box-shadow: 0 0 0 3px var(--accent-ring);
   }
   .btn-primary {
     @apply btn font-semibold;
-    background: var(--accent);
+    background: var(--accent-fill);
     color: var(--accent-ink);
   }
   .btn-primary:hover {
-    background: var(--accent-hover);
+    background: var(--accent-fill-hover);
   }
   .btn-secondary {
     @apply btn;
@@ -228,7 +240,7 @@ html[data-theme='dark'] {
   }
   .input:focus {
     border-color: rgba(24, 26, 24, 0.35);
-    box-shadow: 0 0 0 3px rgba(182, 230, 51, 0.35);
+    box-shadow: 0 0 0 3px var(--accent-ring);
   }
   select.input {
     @apply cursor-pointer appearance-none bg-no-repeat pr-9;
@@ -307,4 +319,60 @@ html[data-theme='dark'] .app-canvas :is(.text-brand-700, .text-brand-600, .text-
 html[data-theme='dark'] .app-canvas .shadow-pop,
 html[data-theme='dark'] .app-canvas [role='dialog'] {
   background-color: #1e211e;
+}
+
+/* ------------------------------------------------------------------ */
+/* Appearance studio options (attributes set on <html> per profile)    */
+/* ------------------------------------------------------------------ */
+html[data-surface='solid'] :is(.glass, .card-solid) {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+html[data-surface='outline'] :is(.glass, .card-solid) {
+  background: color-mix(in srgb, var(--glass) 30%, transparent);
+  border-color: rgba(24, 26, 24, 0.16);
+}
+html[data-surface='outline'][data-theme='dark'] :is(.glass, .card-solid) {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+html[data-shadow='soft'] :is(.card, .card-solid) {
+  box-shadow: 0 1px 3px rgba(24, 26, 24, 0.06), 0 12px 32px -18px rgba(24, 26, 24, 0.22);
+}
+html[data-shadow='lifted'] :is(.card, .card-solid) {
+  box-shadow: 0 2px 6px rgba(24, 26, 24, 0.06), 0 24px 48px -20px rgba(24, 26, 24, 0.38);
+}
+html[data-density='compact'] .app-main {
+  zoom: 0.92;
+}
+html[data-density='comfortable'] .app-main {
+  zoom: 1.06;
+}
+.app-content {
+  max-width: 1400px;
+}
+html[data-width='narrow'] .app-content {
+  max-width: 1120px;
+}
+html[data-width='full'] .app-content {
+  max-width: none;
+}
+/* Sidebar colour: switch its text to stay readable on the chosen colour. */
+html[data-sidebar-contrast='light'] .app-sidebar {
+  --ink: #ffffff;
+  --muted: rgba(255, 255, 255, 0.72);
+  --pill: rgba(255, 255, 255, 0.18);
+  --track: rgba(255, 255, 255, 0.12);
+  --chip: rgba(255, 255, 255, 0.16);
+  --glass-line: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+html[data-sidebar-contrast='dark'] .app-sidebar {
+  --ink: #181a18;
+  --muted: rgba(24, 26, 24, 0.62);
+  --pill: #ffffff;
+  --track: rgba(24, 26, 24, 0.08);
+  --chip: rgba(24, 26, 24, 0.08);
+  --glass-line: rgba(24, 26, 24, 0.08);
+  color: #181a18;
 }

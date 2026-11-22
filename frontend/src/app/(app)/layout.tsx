@@ -10,50 +10,11 @@ import { Modal, Spinner, useToast } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { BrandMark, useAppBranding } from '@/lib/branding';
 import { PlanBanner, planAllows, useSaasStatus } from '@/components/plan-banner';
+import { UiPreferencesProvider, useUi } from '@/lib/appearance';
+import { NAV_GROUPS, type NavItem } from '@/lib/nav';
 
-type NavItem = { href: string; label: string; icon: string; perm: string };
-
-const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
-  {
-    label: 'Menu',
-    items: [
-      { href: '/dashboard', label: 'Overview', icon: 'dashboard', perm: 'contacts:read' },
-      { href: '/inbox', label: 'Conversations', icon: 'inbox', perm: 'conversations:read' },
-      { href: '/pipeline', label: 'Pipeline', icon: 'pipeline', perm: 'pipelines:read' },
-      { href: '/contacts', label: 'Contacts', icon: 'contacts', perm: 'contacts:read' },
-      { href: '/tasks', label: 'Activities', icon: 'tasks', perm: 'contacts:read' },
-      { href: '/calendars', label: 'Calendars', icon: 'calendar', perm: 'calendars:read' },
-      { href: '/calls', label: 'Calls', icon: 'phone', perm: 'conversations:read' },
-    ],
-  },
-  {
-    label: 'Grow',
-    items: [
-      { href: '/campaigns', label: 'Marketing', icon: 'marketing', perm: 'campaigns:read' },
-      { href: '/social', label: 'Social planner', icon: 'send', perm: 'campaigns:read' },
-      { href: '/qr-codes', label: 'QR codes', icon: 'qr', perm: 'campaigns:read' },
-      { href: '/sites', label: 'Sites & Funnels', icon: 'sites', perm: 'websites:read' },
-      { href: '/forms', label: 'Forms & Surveys', icon: 'forms', perm: 'forms:read' },
-      { href: '/reputation', label: 'Reputation', icon: 'reputation', perm: 'contacts:read' },
-    ],
-  },
-  {
-    label: 'Revenue & members',
-    items: [
-      { href: '/payments', label: 'Payments', icon: 'payments', perm: 'payments:read' },
-      { href: '/courses', label: 'Courses', icon: 'courses', perm: 'courses:read' },
-      { href: '/communities', label: 'Communities', icon: 'communities', perm: 'courses:read' },
-    ],
-  },
-  {
-    label: 'Operate',
-    items: [
-      { href: '/workflows', label: 'Automation', icon: 'automation', perm: 'workflows:read' },
-      { href: '/reporting', label: 'Reports', icon: 'reporting', perm: 'analytics:read' },
-    ],
-  },
-];
 const SETTINGS: NavItem = { href: '/settings', label: 'Settings', icon: 'settings', perm: 'contacts:read' };
+const CUSTOMIZE: NavItem = { href: '/appearance', label: 'Customize', icon: 'sparkles', perm: '' };
 
 const initials = (s: string) =>
   s
@@ -67,17 +28,23 @@ const initials = (s: string) =>
 const HUES = ['bg-[#5B9EE1]', 'bg-[#8FB65A]', 'bg-[#E0936F]', 'bg-[#C5A94F]', 'bg-[#9C88D6]', 'bg-[#5FB3A3]', 'bg-[#D5788F]', 'bg-[#7A8C9C]'];
 const hue = (s: string) => HUES[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length];
 
-function readTheme(): 'light' | 'dark' {
-  return typeof document !== 'undefined' && document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
-}
-function setTheme(t: 'light' | 'dark') {
-  if (t === 'dark') document.documentElement.dataset.theme = 'dark';
-  else delete document.documentElement.dataset.theme;
-  try { localStorage.setItem('eril.theme', t); } catch { /* storage blocked: still applies for this visit */ }
-}
+/** Menu item order from the person's appearance: listed hrefs first (in that order), the rest keep their place. */
+const orderBy = (items: NavItem[], order: string[]) =>
+  order.length ? [...items].sort((a, b) => (order.indexOf(a.href) + 1 || 999) - (order.indexOf(b.href) + 1 || 999)) : items;
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
+  const { me } = useAuth();
+  return (
+    <UiPreferencesProvider workspaceId={me?.currentWorkspaceId}>
+      <Shell>{children}</Shell>
+    </UiPreferencesProvider>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
   const { me, loading, logout, switchWorkspace, can } = useAuth();
+  const ui = useUi();
+  const look = ui.appearance;
   const brand = useAppBranding(me?.currentWorkspaceId);
   const saas = useSaasStatus(me?.currentWorkspaceId);
   const router = useRouter();
@@ -85,7 +52,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [counts, setCounts] = useState({ unread: 0, openDeals: 0, openTasks: 0 });
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [theme, setThemeState] = useState<'light' | 'dark'>('light');
+  const theme = ui.dark ? 'dark' : 'light';
   const [feed, setFeed] = useState<LiveEvent[]>([]);
   const [feedOpen, setFeedOpen] = useState(false);
   const [spacesOpen, setSpacesOpen] = useState(false);
@@ -107,7 +74,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    setThemeState(readTheme());
     try { setCollapsed(localStorage.getItem('eril.sidebar') === 'collapsed'); } catch { /* ignore */ }
   }, []);
 
@@ -168,7 +134,22 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const groups = useMemo(() => NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((n) => can(n.perm) && planAllows(saas, n.perm)) })).filter((g) => g.items.length), [can, saas]);
+  const allowed = useMemo(() => NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((n) => can(n.perm) && planAllows(saas, n.perm)) })).filter((g) => g.items.length), [can, saas]);
+  // The person's menu: their order, without the pages they hid (still reachable via search).
+  const groups = useMemo(
+    () => allowed.map((g) => ({ ...g, items: orderBy(g.items.filter((n) => !look.nav.hidden.includes(n.href)), look.nav.order) })).filter((g) => g.items.length),
+    [allowed, look.nav],
+  );
+
+  // Open the chosen start page once per visit, instead of the Overview.
+  useEffect(() => {
+    if (!ui.prefs || pathname !== '/dashboard' || look.startPage === '/dashboard') return;
+    try {
+      if (sessionStorage.getItem('eril.started')) return;
+      sessionStorage.setItem('eril.started', '1');
+    } catch { return; }
+    router.replace(look.startPage);
+  }, [ui.prefs, pathname, look.startPage, router]);
 
   if (loading || !me) {
     return (
@@ -180,7 +161,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const current = me.workspaceMemberships.find((m) => m.workspaceId === me.currentWorkspaceId);
   const wsName = current?.workspaceName ?? 'Workspace';
-  const pageItems = [...(isAgency ? [{ href: '/agency', label: 'Agency view', icon: 'agency', perm: '' }] : []), ...groups.flatMap((g) => g.items), SETTINGS];
+  const pageItems = [...(isAgency ? [{ href: '/agency', label: 'Agency view', icon: 'agency', perm: '' }] : []), ...allowed.flatMap((g) => g.items), CUSTOMIZE, SETTINGS];
   const activeItem = pageItems.find((n) => pathname === n.href || pathname.startsWith(n.href + '/'));
   const countFor = (href: string) => (href === '/inbox' ? counts.unread : href === '/pipeline' ? counts.openDeals : href === '/tasks' ? counts.openTasks : 0);
   const spaces = [...me.workspaceMemberships].sort((a, b) => (a.workspaceId === me.currentWorkspaceId ? -1 : b.workspaceId === me.currentWorkspaceId ? 1 : 0));
@@ -189,11 +170,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setCollapsed(next);
     try { localStorage.setItem('eril.sidebar', next ? 'collapsed' : 'open'); } catch { /* ignore */ }
   };
-  const toggleTheme = () => {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    setTheme(next);
-    setThemeState(next);
-  };
+  const toggleTheme = () => ui.setMode(theme === 'dark' ? 'light' : 'dark');
   const switchTo = async (id: string) => {
     setSpacesOpen(false);
     if (id === me.currentWorkspaceId) return;
@@ -233,8 +210,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       <>
         {/* Brand */}
         <div className={`flex h-14 shrink-0 items-center gap-2.5 ${mini ? 'justify-center px-2' : 'px-4'}`}>
-          {brand.logoUrl ? <BrandMark b={brand} /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-accent text-sm font-bold text-[#181a18]">{(brand.appName || 'E').charAt(0)}</span>}
-          {!mini && <span className="truncate text-[16px] font-bold tracking-tight text-ink">{brand.appName}</span>}
+          <Link href={look.startPage} className="flex min-w-0 items-center gap-2.5" aria-label={`${brand.appName} home`}>
+            {brand.logoUrl ? <BrandMark b={brand} /> : <span className="grid h-8 w-8 shrink-0 place-items-center rounded-xl text-sm font-bold" style={{ background: 'var(--accent-fill)', color: 'var(--accent-ink)' }}>{(brand.appName || 'E').charAt(0)}</span>}
+            {!mini && <span className="truncate text-[16px] font-bold tracking-tight text-ink">{brand.appName}</span>}
+          </Link>
           {!mini && (
             <button className="btn-ghost ml-auto hidden h-8 w-8 px-0 md:inline-flex" onClick={toggleCollapsed} aria-label="Collapse sidebar" title="Collapse sidebar">
               <Icon name="panelRight" className="h-4 w-4 rotate-180" />
@@ -296,6 +275,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
         {/* Utilities + profile */}
         <div className="space-y-0.5 border-t border-[var(--glass-line)] p-3">
+          {navLink(CUSTOMIZE)}
           {navLink(SETTINGS)}
           <button onClick={() => setHelpOpen(true)} title={mini ? 'Help' : undefined} className={`flex w-full items-center gap-2.5 rounded-full py-[7px] text-[14px] font-medium text-muted transition-colors hover:bg-[var(--track)] hover:text-ink ${mini ? 'justify-center' : 'px-3'}`}>
             <Icon name="note" className="h-[18px] w-[18px]" />
@@ -345,10 +325,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   ].filter((n) => can(n.perm));
 
   return (
-    <div className="app-canvas flex min-h-screen">
-      {/* Desktop: detached floating rail */}
+    <div className={`app-canvas flex min-h-screen ${look.sidebar.side === 'right' ? 'md:flex-row-reverse' : ''}`}>
+      {/* Desktop: detached floating rail, or docked to the edge */}
       <aside
-        className={`glass sticky top-3 m-3 hidden h-[calc(100vh-24px)] shrink-0 flex-col rounded-3xl md:flex ${collapsed ? 'w-[72px]' : 'w-[240px]'}`}
+        className={`app-sidebar glass sticky hidden shrink-0 flex-col md:flex ${collapsed ? 'w-[72px]' : 'w-[240px]'} ${
+          look.sidebar.style === 'docked' ? `top-0 h-screen rounded-none border-y-0 ${look.sidebar.side === 'right' ? 'border-r-0' : 'border-l-0'}` : 'top-3 m-3 h-[calc(100vh-24px)] rounded-3xl'
+        }`}
         style={{ background: 'var(--glass-sidebar)' }}
       >
         {rail(collapsed)}
@@ -357,13 +339,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {menuOpen && (
         <>
           <div className="fixed inset-0 z-40 animate-fade-in bg-black/30 backdrop-blur-[2px] md:hidden" onClick={() => setMenuOpen(false)} />
-          <aside className="glass fixed inset-y-3 left-3 z-50 flex w-[260px] animate-slide-in flex-col rounded-3xl md:hidden" style={{ background: 'var(--glass-sidebar)' }}>
+          <aside className="app-sidebar glass fixed inset-y-3 left-3 z-50 flex w-[260px] animate-slide-in flex-col rounded-3xl md:hidden" style={{ background: 'var(--glass-sidebar)' }}>
             {rail(false)}
           </aside>
         </>
       )}
 
-      <div className="flex min-w-0 flex-1 flex-col md:pl-1">
+      <div className={`flex min-w-0 flex-1 flex-col ${look.sidebar.style === 'docked' ? 'md:px-2' : look.sidebar.side === 'right' ? 'md:pr-1' : 'md:pl-1'}`}>
         <header
           className={`sticky top-0 z-30 flex h-16 items-center gap-3 px-4 transition-[background,box-shadow] duration-200 md:px-6 ${scrolled ? 'border-b border-[var(--glass-border)] shadow-[0_8px_24px_-20px_rgba(24,26,24,0.5)]' : ''}`}
           style={scrolled ? { background: 'var(--glass)', backdropFilter: 'blur(20px) saturate(1.1)', WebkitBackdropFilter: 'blur(20px) saturate(1.1)' } : undefined}
@@ -459,8 +441,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <Link href="/settings" aria-label="Your settings" className={`hidden h-10 w-10 place-items-center rounded-full text-xs font-semibold text-white sm:grid ${hue(me.name)}`}>{initials(me.name)}</Link>
           </div>
         </header>
-        <main className="flex-1 px-4 pb-8 pt-2 md:px-6">
-          <div className="mx-auto w-full max-w-[1400px]"><PlanBanner status={saas} />{children}</div>
+        <main className="app-main flex-1 px-4 pb-8 pt-2 md:px-6">
+          <div className="app-content mx-auto w-full"><PlanBanner status={saas} />{children}</div>
         </main>
       </div>
 
