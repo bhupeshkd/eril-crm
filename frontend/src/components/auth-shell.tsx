@@ -1,13 +1,31 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { BrandMark, usePublicBranding } from '@/lib/branding';
+import { usePwaSetup } from '@/lib/pwa';
+
 const POINTS = ['CRM, pipeline and unified inbox', 'Campaigns, funnels and order forms', 'Courses, communities and automations'];
 
+/** On an agency's own app domain the login shows that agency's name, logo and colour. */
+function useHostBranding() {
+  const [host, setHost] = useState<string>();
+  useEffect(() => {
+    const h = window.location.hostname;
+    if (h !== 'localhost' && h !== '127.0.0.1') setHost(h);
+  }, []);
+  return usePublicBranding(host ? 'host' : undefined, host);
+}
+
 export function AuthShell({ title, children }: { title: string; children: React.ReactNode }) {
+  const b = useHostBranding();
+  usePwaSetup(b.primaryColor, b.appName);
   return (
     <main className="grid min-h-screen bg-white lg:grid-cols-[1fr_1.1fr]">
       <section className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="mb-8 flex items-center gap-2.5">
-            <div className="grid h-9 w-9 place-items-center rounded-[11px] bg-gradient-to-br from-brand-500 to-brand-700 text-base font-bold text-white shadow-sm shadow-brand-600/30">E</div>
-            <span className="text-lg font-semibold tracking-tight">ERIL</span>
+            <BrandMark b={b} size="h-9 w-9 text-base rounded-[11px]" />
+            <span className="text-lg font-semibold tracking-tight">{b.appName}</span>
           </div>
           <h1 className="text-[26px] font-semibold tracking-tight">{title}</h1>
           <p className="mb-7 mt-1.5 text-sm text-slate-500">Your whole business, in one place.</p>
@@ -16,7 +34,7 @@ export function AuthShell({ title, children }: { title: string; children: React.
       </section>
       <aside aria-hidden className="relative hidden overflow-hidden bg-brand-950 lg:block">
         <div className="absolute -left-24 -top-24 h-96 w-96 rounded-full bg-brand-500/40 blur-3xl" />
-        <div className="absolute -bottom-32 right-0 h-[28rem] w-[28rem] rounded-full bg-violet-500/30 blur-3xl" />
+        <div className="absolute -bottom-32 right-0 h-[28rem] w-[28rem] rounded-full bg-brand-400/30 blur-3xl" />
         <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.05)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.05)_1px,transparent_1px)] bg-[size:44px_44px] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_75%)]" />
         <div className="relative flex h-full flex-col justify-end p-12 text-white">
           <p className="max-w-md text-[28px] font-semibold leading-tight tracking-tight">Run marketing, sales and service from one modern workspace.</p>

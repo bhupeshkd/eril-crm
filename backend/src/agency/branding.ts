@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Injectable, Module, Param, ParseUUIDPipe, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Injectable, Module, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
@@ -9,6 +9,11 @@ import { Public } from '../common/decorators/public.decorator';
 import { SkipTenant } from '../common/decorators/skip-tenant.decorator';
 import { Tenant } from '../common/decorators/tenant.decorator';
 import { AgencyModule, AgencyService } from './agency';
+import { DomainsModule, DomainsService } from '../sites/domains';
+
+export class AppDomainDto {
+  @IsString() @MaxLength(300) hostname: string;
+}
 
 export class BrandingDto {
   @IsOptional() @IsString() @MaxLength(40) appName?: string;
@@ -79,6 +84,15 @@ export class BrandingService {
 
   /** Branding for a public page. Unknown kinds or keys get the default, so this can't be used to test whether a link is valid. */
   async forPublic(kind: string, key: string) {
+    // The login page on an agency's own app domain asks by hostname.
+    if (kind === 'host') {
+      const rows = await this.ds.query(
+        `SELECT o.branding FROM custom_domains d JOIN organizations o ON o.id = d.organization_id
+          WHERE d.hostname = $1 AND d.kind = 'app' AND d.status = 'verified' AND d.deleted_at IS NULL LIMIT 1`,
+        [String(key).toLowerCase().slice(0, 253)],
+      );
+      return normaliseBranding(rows[0]?.branding);
+    }
     const sql = PUBLIC_KEYS[kind];
     if (!sql || !key || key.length > 200) return normaliseBranding(null);
     try {
@@ -92,7 +106,11 @@ export class BrandingService {
 
 @Controller()
 export class BrandingController {
-  constructor(private readonly svc: BrandingService) {}
+  constructor(
+    private readonly svc: BrandingService,
+    private readonly agency: AgencyService,
+    private readonly domains: DomainsService,
+  ) {}
 
   /** Branding for the signed-in workspace (app shell). */
   @Get('branding')
@@ -112,6 +130,37 @@ export class BrandingController {
     return this.svc.update(userId, orgId, dto);
   }
 
+  // ---- App domain: the agency's own address for the staff app ----
+  @Get('agency/:orgId/app-domains')
+  @SkipTenant()
+  async appDomains(@CurrentUser('id') userId: string, @Param('orgId', ParseUUIDPipe) orgId: string) {
+    await this.agency.assertAccess(userId, orgId);
+    return this.domains.listApp(orgId);
+  }
+
+  @Post('agency/:orgId/app-domains')
+  @SkipTenant()
+  async addAppDomain(@CurrentUser('id') userId: string, @Param('orgId', ParseUUIDPipe) orgId: string, @Body() dto: AppDomainDto) {
+    await this.agency.assertAccess(userId, orgId);
+    return this.domains.addApp(orgId, dto.hostname);
+  }
+
+  @Post('agency/:orgId/app-domains/:id/verify')
+  @SkipTenant()
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async verifyAppDomain(@CurrentUser('id') userId: string, @Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string) {
+    await this.agency.assertAccess(userId, orgId);
+    return this.domains.verifyApp(orgId, id);
+  }
+
+  @Delete('agency/:orgId/app-domains/:id')
+  @SkipTenant()
+  async removeAppDomain(@CurrentUser('id') userId: string, @Param('orgId', ParseUUIDPipe) orgId: string, @Param('id', ParseUUIDPipe) id: string) {
+    await this.agency.assertAccess(userId, orgId);
+    return this.domains.removeApp(orgId, id);
+  }
+
   @Get('public/branding/:kind/:key')
   @Public()
   @SkipTenant()
@@ -123,7 +172,7 @@ export class BrandingController {
 }
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Organization]), AgencyModule],
+  imports: [TypeOrmModule.forFeature([Organization]), AgencyModule, DomainsModule],
   controllers: [BrandingController],
   providers: [BrandingService],
 })

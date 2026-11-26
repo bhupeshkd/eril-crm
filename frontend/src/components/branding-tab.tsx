@@ -47,6 +47,7 @@ export function BrandingTab({ orgId }: { orgId: string }) {
   }
 
   return (
+    <div className="space-y-5">
     <div className="grid gap-5 lg:grid-cols-[1fr_380px]">
       <section className="card">
         <div className="border-b border-slate-100 px-5 py-4">
@@ -150,5 +151,140 @@ export function BrandingTab({ orgId }: { orgId: string }) {
         </div>
       </aside>
     </div>
+    <AppDomainsCard orgId={orgId} appName={saved.appName} />
+    </div>
+  );
+}
+
+type AppDomain = {
+  id: string;
+  hostname: string;
+  status: 'pending' | 'verified' | 'failed';
+  lastError: string | null;
+  dns: { txt: { name: string; value: string }; cname: { name: string; value: string } };
+};
+
+function CopyValue({ value }: { value: string }) {
+  const toast = useToast();
+  return (
+    <button
+      type="button"
+      className="group flex min-w-0 items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1 text-left font-mono text-[12px] text-slate-700 ring-1 ring-slate-200 hover:bg-slate-100"
+      title="Copy"
+      onClick={() => navigator.clipboard?.writeText(value).then(() => toast('Copied'), () => {})}
+    >
+      <span className="truncate">{value}</span>
+    </button>
+  );
+}
+
+/** Agency → Branding → App domain: staff sign in at the agency's own address, e.g. app.theiragency.com. */
+function AppDomainsCard({ orgId, appName }: { orgId: string; appName: string }) {
+  const toast = useToast();
+  const [rows, setRows] = useState<AppDomain[] | null>(null);
+  const [host, setHost] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRows(null);
+    api<{ domains: AppDomain[] }>(`/agency/${orgId}/app-domains`).then((x) => setRows(x.domains)).catch((e) => toast(errorText(e), 'error'));
+  }, [orgId, toast]);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy('add');
+    try {
+      const d = await api<AppDomain>(`/agency/${orgId}/app-domains`, { method: 'POST', body: { hostname: host } });
+      setRows((r) => [...(r ?? []), d]);
+      setHost('');
+      toast('Domain added. Add the DNS records, then verify.');
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function verify(d: AppDomain) {
+    setBusy(d.id);
+    try {
+      const next = await api<AppDomain>(`/agency/${orgId}/app-domains/${d.id}/verify`, { method: 'POST' });
+      setRows((r) => (r ?? []).map((x) => (x.id === d.id ? next : x)));
+      toast(next.status === 'verified' ? `${next.hostname} is connected` : next.lastError || 'Not verified yet', next.status === 'verified' ? undefined : 'error');
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function remove(d: AppDomain) {
+    if (!confirm(`Disconnect ${d.hostname}? Staff will need to sign in at the main address again.`)) return;
+    setBusy(d.id);
+    try {
+      await api(`/agency/${orgId}/app-domains/${d.id}`, { method: 'DELETE' });
+      setRows((r) => (r ?? []).filter((x) => x.id !== d.id));
+    } catch (err) {
+      toast(errorText(err), 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="card" aria-labelledby="app-domain-title">
+      <div className="border-b border-slate-100 px-5 py-4">
+        <h2 id="app-domain-title" className="font-semibold">App domain</h2>
+        <p className="mt-0.5 text-[13px] text-slate-500">
+          Let your team and clients sign in to {appName} at your own address, such as app.youragency.com. The login page shows your branding and invitation links use this domain.
+        </p>
+      </div>
+      <div className="space-y-4 p-5">
+        {rows === null ? (
+          <div className="grid h-20 place-items-center"><Spinner /></div>
+        ) : (
+          rows.map((d) => (
+            <div key={d.id} className="rounded-xl border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-slate-900">{d.hostname}</span>
+                <span className={`badge ${d.status === 'verified' ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20' : d.status === 'failed' ? 'bg-rose-50 text-rose-700 ring-rose-600/20' : 'bg-amber-50 text-amber-700 ring-amber-600/20'}`}>
+                  {d.status === 'verified' ? 'Connected' : d.status === 'failed' ? 'Check failed' : 'Waiting for DNS'}
+                </span>
+                <span className="flex-1" />
+                {d.status === 'verified' ? (
+                  <a className="btn-ghost h-8 text-[13px]" href={`https://${d.hostname}/login`} target="_blank" rel="noreferrer">Open</a>
+                ) : (
+                  <button className="btn-secondary h-8 text-[13px]" disabled={busy === d.id} onClick={() => verify(d)}>{busy === d.id ? 'Checking…' : 'Verify'}</button>
+                )}
+                <button className="btn-ghost h-8 text-[13px] text-rose-600" disabled={busy === d.id} onClick={() => remove(d)}>Remove</button>
+              </div>
+              {d.status !== 'verified' && (
+                <>
+                  {d.lastError && <p className="mt-2 text-[13px] text-rose-600">{d.lastError}</p>}
+                  <p className="mt-3 text-[13px] text-slate-500">Add these records where you manage DNS for this domain, then press Verify. DNS changes can take a few minutes to show up.</p>
+                  <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 text-[13px]">
+                    <div className="hidden grid-cols-[70px_1fr_1fr] gap-3 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 sm:grid">
+                      <span>Type</span><span>Name</span><span>Value</span>
+                    </div>
+                    {([['TXT', d.dns.txt], ['CNAME', d.dns.cname]] as const).map(([type, r]) => (
+                      <div key={type} className="grid gap-1.5 border-t border-slate-100 px-3 py-2 first:border-t-0 sm:grid-cols-[70px_1fr_1fr] sm:items-center sm:gap-3">
+                        <span className="font-medium text-slate-700">{type}</span>
+                        <CopyValue value={r.name} />
+                        <CopyValue value={r.value} />
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ))
+        )}
+        <form onSubmit={add} className="flex flex-col gap-2 sm:flex-row">
+          <label htmlFor="app-domain" className="sr-only">Domain</label>
+          <input id="app-domain" className="input" placeholder="app.youragency.com" maxLength={253} value={host} onChange={(e) => setHost(e.target.value.trim())} />
+          <button className="btn-primary shrink-0" disabled={!host || busy === 'add'}>{busy === 'add' ? 'Adding…' : 'Add domain'}</button>
+        </form>
+      </div>
+    </section>
   );
 }

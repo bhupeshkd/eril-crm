@@ -12,6 +12,7 @@ import { BrandMark, useAppBranding } from '@/lib/branding';
 import { PlanBanner, planAllows, useSaasStatus } from '@/components/plan-banner';
 import { UiPreferencesProvider, useUi } from '@/lib/appearance';
 import { NAV_GROUPS, type NavItem } from '@/lib/nav';
+import { usePwaSetup, useInstall } from '@/lib/pwa';
 
 const SETTINGS: NavItem = { href: '/settings', label: 'Settings', icon: 'settings', perm: 'contacts:read' };
 const CUSTOMIZE: NavItem = { href: '/appearance', label: 'Customize', icon: 'sparkles', perm: '' };
@@ -59,6 +60,25 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [iosSteps, setIosSteps] = useState(false);
+  usePwaSetup(brand.primaryColor, brand.appName);
+  const pwa = useInstall();
+  // Tapping a push notification opens /page?ws=<workspace>: switch to that workspace first, then drop the parameter.
+  useEffect(() => {
+    if (!me) return;
+    const params = new URLSearchParams(location.search);
+    const ws = params.get('ws');
+    if (!ws) return;
+    params.delete('ws');
+    const qs = params.toString();
+    const clean = location.pathname + (qs ? `?${qs}` : '');
+    if (ws !== me.currentWorkspaceId && me.workspaceMemberships.some((m) => m.workspaceId === ws)) {
+      switchWorkspace(ws).then(() => location.replace(clean), () => history.replaceState(null, '', clean));
+    } else {
+      history.replaceState(null, '', clean);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id]);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [unseen, setUnseen] = useState(0);
   const [scrolled, setScrolled] = useState(false);
@@ -277,6 +297,16 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="space-y-0.5 border-t border-[var(--glass-line)] p-3">
           {navLink(CUSTOMIZE)}
           {navLink(SETTINGS)}
+          {(pwa.canPrompt || pwa.needsIosSteps) && (
+            <button
+              onClick={() => (pwa.canPrompt ? pwa.install() : setIosSteps(true))}
+              title={mini ? 'Install app' : undefined}
+              className={`flex w-full items-center gap-2.5 rounded-full py-[7px] text-[14px] font-medium text-muted transition-colors hover:bg-[var(--track)] hover:text-ink ${mini ? 'justify-center' : 'px-3'}`}
+            >
+              <Icon name="download" className="h-[18px] w-[18px]" />
+              {!mini && 'Install app'}
+            </button>
+          )}
           <button onClick={() => setHelpOpen(true)} title={mini ? 'Help' : undefined} className={`flex w-full items-center gap-2.5 rounded-full py-[7px] text-[14px] font-medium text-muted transition-colors hover:bg-[var(--track)] hover:text-ink ${mini ? 'justify-center' : 'px-3'}`}>
             <Icon name="note" className="h-[18px] w-[18px]" />
             {!mini && 'Help'}
@@ -464,6 +494,15 @@ function Shell({ children }: { children: React.ReactNode }) {
         </Modal>
       )}
 
+      {iosSteps && (
+        <Modal open title={`Install ${brand.appName}`} onClose={() => setIosSteps(false)}>
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-muted">
+            <li>Tap the <span className="font-semibold text-ink">Share</span> button in Safari’s toolbar.</li>
+            <li>Choose <span className="font-semibold text-ink">Add to Home Screen</span>.</li>
+            <li>Tap <span className="font-semibold text-ink">Add</span>. {brand.appName} opens full screen from your home screen.</li>
+          </ol>
+        </Modal>
+      )}
       {helpOpen && (
         <Modal open title="Help" onClose={() => setHelpOpen(false)}>
           <div className="space-y-4 text-sm text-ink">

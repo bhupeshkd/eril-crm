@@ -11,6 +11,8 @@ export function describeEvent(e: DomainEvent): { title: string; href?: string } 
   switch (e.type) {
     case 'message.received':
       return { title: `New ${p.message?.channel ?? 'message'} from ${fullName(p.contact)}`, href: `/inbox?c=${p.conversationId}` };
+    case 'conversation.handed_off':
+      return { title: 'The AI assistant handed a conversation to your team', href: `/inbox?c=${p.conversationId}` };
     case 'call.missed':
       return { title: `Missed call from ${fullName(p.contact) || p.call?.from}${p.textedBack ? ' — texted back' : ''}`, href: '/calls' };
     case 'contact.created':

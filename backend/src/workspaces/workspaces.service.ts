@@ -166,11 +166,27 @@ export class WorkspacesService {
   // Invitations
   // ---------------------------------------------------------------------------
 
-  private inviteUrl(token: string) {
-    return `${this.config.get('APP_URL') || 'http://localhost:3000'}/invite/${token}`;
+  private inviteUrl(token: string, base?: string | null) {
+    return `${base || this.config.get('APP_URL') || 'http://localhost:3000'}/invite/${token}`;
+  }
+
+  /**
+   * White-label: an agency with a verified app domain gets invite links on that domain,
+   * and emails use its brand name instead of ERIL.
+   */
+  private async agencyIdentity(workspaceId: string): Promise<{ base: string | null; appName: string }> {
+    const rows = await this.workspaces.query(
+      `SELECT o.branding->>'appName' AS app_name,
+              (SELECT d.hostname FROM custom_domains d WHERE d.organization_id = o.id AND d.kind = 'app' AND d.status = 'verified' AND d.deleted_at IS NULL ORDER BY d.verified_at LIMIT 1) AS host
+         FROM workspaces w JOIN organizations o ON o.id = w.organization_id WHERE w.id = $1`,
+      [workspaceId],
+    );
+    const r = rows[0] ?? {};
+    return { base: r.host ? `https://${r.host}` : null, appName: (r.app_name || '').trim() || 'ERIL' };
   }
 
   async pendingInvitations(workspaceId: string) {
+    const { base } = await this.agencyIdentity(workspaceId);
     const rows = await this.invitations.find({
       where: { workspaceId, acceptedAt: IsNull(), expiresAt: MoreThan(new Date()) },
       relations: { invitedBy: true },
@@ -183,7 +199,7 @@ export class WorkspacesService {
       invitedBy: i.invitedBy?.name ?? null,
       createdAt: i.createdAt,
       expiresAt: i.expiresAt,
-      inviteUrl: this.inviteUrl(i.invitationToken),
+      inviteUrl: this.inviteUrl(i.invitationToken, base),
     }));
   }
 
@@ -213,8 +229,9 @@ export class WorkspacesService {
       inv = this.invitations.create({ email, workspaceId, invitedById: invitedBy, role, invitationToken: token, expiresAt });
     }
     await this.invitations.save(inv);
-    await this.sendInviteEmail(inv, ws.name, invitedBy, !!existingUser);
-    return { id: inv.id, email, role, inviteUrl: this.inviteUrl(token), expiresAt };
+    const identity = await this.agencyIdentity(workspaceId);
+    await this.sendInviteEmail(inv, ws.name, invitedBy, !!existingUser, identity);
+    return { id: inv.id, email, role, inviteUrl: this.inviteUrl(token, identity.base), expiresAt };
   }
 
   async resendInvitation(workspaceId: string, invitationId: string, requesterId: string) {
@@ -231,20 +248,20 @@ export class WorkspacesService {
     return { revoked: true };
   }
 
-  private async sendInviteEmail(inv: Invitation, workspaceName: string, invitedBy: string, hasAccount: boolean) {
+  private async sendInviteEmail(inv: Invitation, workspaceName: string, invitedBy: string, hasAccount: boolean, identity: { base: string | null; appName: string }) {
     const inviter = await this.users.findOne({ where: { id: invitedBy } });
     const who = inviter?.name || 'A teammate';
-    const url = this.inviteUrl(inv.invitationToken);
+    const url = this.inviteUrl(inv.invitationToken, identity.base);
     const roleLabel = ROLE_LABELS[inv.role] ?? inv.role;
     const action = hasAccount ? 'Sign in to accept' : 'Create your account';
-    const body = `${who} invited you to join ${workspaceName} on ERIL as ${roleLabel}.\n\n${action}: ${url}\n\nThis link expires in 7 days. If you weren’t expecting this, you can ignore this email.`;
+    const body = `${who} invited you to join ${workspaceName} on ${identity.appName} as ${roleLabel}.\n\n${action}: ${url}\n\nThis link expires in 7 days. If you weren’t expecting this, you can ignore this email.`;
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
     const html = `<div style="font-family:system-ui,sans-serif;max-width:480px;margin:auto;padding:24px;color:#0f172a">
-<p style="font-size:16px"><strong>${esc(who)}</strong> invited you to join <strong>${esc(workspaceName)}</strong> on ERIL as <strong>${esc(roleLabel)}</strong>.</p>
+<p style="font-size:16px"><strong>${esc(who)}</strong> invited you to join <strong>${esc(workspaceName)}</strong> on ${identity.appName} as <strong>${esc(roleLabel)}</strong>.</p>
 <p><a href="${esc(url)}" style="display:inline-block;background:#5847d7;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">${action}</a></p>
 <p style="color:#64748b;font-size:13px">This link expires in 7 days. If you weren’t expecting this, you can ignore this email.</p></div>`;
     try {
-      await this.email.send({ to: inv.email, subject: `${who} invited you to ${workspaceName} on ERIL`, body, html });
+      await this.email.send({ to: inv.email, subject: `${who} invited you to ${workspaceName} on ${identity.appName}`, body, html });
     } catch (e) {
       // The invitation still exists and its link is shown to the admin, so don't fail the request.
       this.logger.warn(`Invite email to ${inv.email} failed: ${(e as Error).message}`);

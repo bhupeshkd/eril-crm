@@ -10,6 +10,7 @@ import { DeveloperSettings } from '@/components/developer-settings';
 import { TrackingSettings } from '@/components/tracking-settings';
 import { TeamSettings } from '@/components/team-settings';
 import { AssistantSettings } from '@/components/assistant-settings';
+import { PushSettings } from '@/components/push-settings';
 import { PlanUsageCard } from '@/components/plan-banner';
 import { ChatWidgetSettings } from '@/components/chat-widget-settings';
 import { PhoneSettings } from '@/components/phone-settings';
@@ -73,6 +74,7 @@ export default function SettingsPage() {
 
       <PlanUsageCard workspaceId={me?.currentWorkspaceId} />
       <TeamSettings />
+      <PushSettings />
       <AssistantSettings />
       <ChatWidgetSettings />
       <PhoneSettings />
