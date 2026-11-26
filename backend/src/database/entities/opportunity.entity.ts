@@ -49,4 +49,8 @@ export class Opportunity extends BaseEntity {
 
   @Column({ name: 'expected_close_date', type: 'date', nullable: true })
   expectedCloseDate: string | null;
+
+  /** When the deal was won or lost (null while open). Drives "won this month" and revenue charts. */
+  @Column({ name: 'closed_at', type: 'timestamptz', nullable: true })
+  closedAt: Date | null;
 }

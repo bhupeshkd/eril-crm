@@ -45,6 +45,8 @@ export class UpdateFormDto extends FormFieldsDto {
 }
 export class SubmitFormDto {
   @IsObject() data: Record<string, any>;
+  /** Marketing attribution captured on the page ({ first, last } touches). */
+  @IsOptional() @IsObject() attribution?: Record<string, unknown>;
 }
 
 const DEFAULT_FIELDS: FormField[] = [
@@ -176,7 +178,7 @@ export class FormsService {
     return f;
   }
 
-  async submit(slug: string, data: Record<string, any>, ip?: string) {
+  async submit(slug: string, data: Record<string, any>, ip?: string, attribution?: unknown) {
     const form = await this.publicForm(slug);
     const { clean, errors } = validateSubmission(form.fields, data);
     if (Object.keys(errors).length) throw new BadRequestException({ message: 'Please fix the highlighted fields', errors });
@@ -193,6 +195,7 @@ export class FormsService {
         ...contactData,
         tags: form.settings?.tags ?? [],
         source: `form:${form.name}`.slice(0, 50),
+        attribution,
       });
       contactId = contact.id;
     }
@@ -280,7 +283,7 @@ export class PublicFormsController {
   @Post(':slug/submit')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   submit(@Param('slug') slug: string, @Body() dto: SubmitFormDto, @Ip() ip: string) {
-    return this.svc.submit(slug, dto.data, ip);
+    return this.svc.submit(slug, dto.data, ip, dto.attribution);
   }
 }
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Tenant } from '../common/decorators/tenant.decorator';
@@ -63,6 +63,13 @@ export class SalesController {
     @Body() dto: CreateOpportunityDto,
   ) {
     return this.sales.createOpportunity(ws, dto, userId);
+  }
+
+  /** Quick search for the command palette (title or contact name). */
+  @Get('opportunities')
+  @Permissions('opportunities:read')
+  search(@Tenant('workspaceId') ws: string, @Query('q') q?: string) {
+    return this.sales.searchOpportunities(ws, String(q ?? ''));
   }
 
   @Get('opportunities/:id')

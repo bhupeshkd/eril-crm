@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { getAttribution } from '@/lib/attribution';
 import { Spinner, errorText } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { PublicLoading, PublicShell, SuccessMark } from '@/components/public-shell';
@@ -64,7 +65,7 @@ export default function BookingPage() {
     setBusy(true);
     setError('');
     try {
-      setDone(await api(`/public/calendars/${slug}/book`, { method: 'POST', auth: false, body: { startAt: slot, ...form, phone: form.phone || undefined, notes: form.notes || undefined } }));
+      setDone(await api(`/public/calendars/${slug}/book`, { method: 'POST', auth: false, body: { startAt: slot, ...form, phone: form.phone || undefined, notes: form.notes || undefined, attribution: getAttribution() } }));
     } catch (err) {
       setError(errorText(err));
       api<string[]>(`/public/calendars/${slug}/slots?date=${date}`, { auth: false }).then(setSlots).catch(() => {});

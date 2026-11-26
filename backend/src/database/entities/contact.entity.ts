@@ -1,6 +1,7 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from './base.entity';
 import { Company } from './company.entity';
+import type { Touch } from '../../crm/attribution';
 
 export const CONTACT_STATUSES = ['lead', 'customer', 'churned'] as const;
 export type ContactStatus = (typeof CONTACT_STATUSES)[number];
@@ -54,4 +55,11 @@ export class Contact extends BaseEntity {
   /** Do-not-disturb: excluded from campaigns and automated messages. */
   @Column({ default: false })
   dnd: boolean;
+
+  /** Marketing attribution: the first and the latest tracked visit that led to a conversion (see crm/attribution.ts). */
+  @Column({ name: 'first_touch', type: 'jsonb', nullable: true })
+  firstTouch: Touch | null;
+
+  @Column({ name: 'last_touch', type: 'jsonb', nullable: true })
+  lastTouch: Touch | null;
 }

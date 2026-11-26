@@ -40,7 +40,7 @@ export function Modal({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center overflow-y-auto bg-slate-900/40 p-4 pt-[8vh] backdrop-blur-[3px]"
+      className="fixed inset-0 z-50 flex animate-fade-in items-start justify-center overflow-y-auto bg-black/25 p-4 pt-[8vh] backdrop-blur-[3px]"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
@@ -48,10 +48,11 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
-        className={`w-full animate-pop-in rounded-2xl border border-slate-200/80 bg-white shadow-pop ${wide ? 'max-w-2xl' : 'max-w-lg'}`}
+        className={`w-full animate-pop-in rounded-[22px] border border-[var(--glass-border)] shadow-pop ${wide ? 'max-w-2xl' : 'max-w-lg'}`}
+        style={{ background: 'var(--glass-strong)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h2 id="modal-title" className="text-base font-semibold">
+        <div className="flex items-center justify-between border-b border-[var(--glass-line)] px-6 py-4">
+          <h2 id="modal-title" className="text-[16px] font-semibold text-ink">
             {title}
           </h2>
           <button className="btn-ghost -mr-2 h-8 w-8 px-0 text-slate-400" onClick={onClose} aria-label="Close">
@@ -67,7 +68,7 @@ export function Modal({
 export function EmptyState({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="card flex flex-col items-center justify-center gap-2 border-dashed px-6 py-14 text-center">
-      <div className="mb-1 grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600 ring-1 ring-inset ring-brand-200/60">
+      <div className="mb-1 grid h-11 w-11 place-items-center rounded-2xl bg-[#B6E633]/30 text-ink">
         <svg aria-hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className="h-5 w-5"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /></svg>
       </div>
       <p className="font-semibold text-slate-800">{title}</p>
@@ -78,10 +79,10 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
 
 export function PageHeader({ title, actions, subtitle }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   return (
-    <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4 pt-2">
       <div className="min-w-0">
-        <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{title}</h1>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+        <h1 className="text-[28px] font-semibold leading-tight tracking-[-0.02em] text-ink md:text-[30px]">{title}</h1>
+        {subtitle && <p className="mt-1 text-[13px] text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
@@ -165,7 +166,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div className={`flex w-fit max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-200/60 p-1 ${className}`} role="tablist" aria-label={label}>
+    <div className={`glass flex w-fit max-w-full gap-1 overflow-x-auto rounded-full p-1 ${className}`} role="tablist" aria-label={label}>
       {options.map(([v, l, n]) => (
         <button
           key={v}
@@ -173,7 +174,7 @@ export function Segmented<T extends string>({
           role="tab"
           aria-selected={value === v}
           onClick={() => onChange(v)}
-          className={`flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1 text-[13px] font-medium transition ${value === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${value === v ? 'bg-[var(--pill)] font-semibold text-ink shadow-[0_1px_2px_rgba(24,26,24,0.08)]' : 'text-muted hover:text-ink'}`}
         >
           {l}
           {n != null && n > 0 && <span className={`rounded-full px-1.5 text-[10px] font-semibold leading-4 ${value === v ? 'bg-brand-100 text-brand-700' : 'bg-slate-300/60 text-slate-600'}`}>{n}</span>}
@@ -187,7 +188,7 @@ export function Segmented<T extends string>({
 export function StatTile({ label, value, hint, icon, tint }: { label: string; value: React.ReactNode; hint?: string; icon: React.ReactNode; tint: string }) {
   return (
     <div className="card flex items-center gap-4 px-4 py-3.5">
-      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br ${tint} text-white shadow-sm`}>{icon}</span>
+      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-gradient-to-br ${tint} text-white`}>{icon}</span>
       <div className="min-w-0">
         <div className="text-[12px] font-medium text-slate-500">{label}</div>
         <div className="text-xl font-semibold leading-tight tracking-tight tabular-nums">{value}</div>
@@ -260,7 +261,7 @@ export function TitleInput({ value, onChange, disabled, label }: { value: string
 /** Underline tabs for sections inside an editor. */
 export function Tabs<T extends string>({ value, onChange, options, className = '' }: { value: T; onChange: (v: T) => void; options: ReadonlyArray<readonly [T, string] | readonly [T, string, number | undefined]>; className?: string }) {
   return (
-    <div className={`mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 ${className}`} role="tablist">
+    <div className={`glass mb-5 flex w-fit max-w-full gap-1 overflow-x-auto rounded-full p-1 ${className}`} role="tablist">
       {options.map(([v, l, n]) => (
         <button
           key={v}
@@ -268,7 +269,7 @@ export function Tabs<T extends string>({ value, onChange, options, className = '
           role="tab"
           aria-selected={value === v}
           onClick={() => onChange(v)}
-          className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2.5 text-[13px] font-medium transition ${value === v ? 'border-brand-600 text-slate-900' : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-800'}`}
+          className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition ${value === v ? 'bg-[var(--pill)] font-semibold text-ink shadow-[0_1px_2px_rgba(24,26,24,0.08)]' : 'text-muted hover:text-ink'}`}
         >
           {l}
           {n != null && <span className={`rounded-full px-1.5 text-[10px] font-semibold leading-4 ${value === v ? 'bg-brand-100 text-brand-700' : 'bg-slate-100 text-slate-500'}`}>{n}</span>}

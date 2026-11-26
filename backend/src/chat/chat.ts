@@ -18,7 +18,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { cleanAttribution } from '../crm/attribution';
 import { createHash, randomBytes } from 'crypto';
 import { DataSource, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 import { ChatSession, ChatWidget } from '../database/entities/chat.entity';
@@ -48,6 +49,8 @@ class StartDto {
   @IsOptional() @IsString() @MaxLength(500) pageUrl?: string;
   /** First message, sent along with starting the chat. */
   @IsOptional() @IsString() @MaxLength(2000) message?: string;
+  /** Marketing attribution captured on the page ({ first, last } touches). */
+  @IsOptional() @IsObject() attribution?: Record<string, unknown>;
 }
 class PostDto {
   @IsString() @IsNotEmpty() @MaxLength(2000) body: string;
@@ -123,8 +126,12 @@ export class ChatService {
     const [firstName, ...rest] = name ? name.split(/\s+/) : [];
     // Matching by email links the chat to the existing contact for staff; the visitor still only sees this session's messages.
     const { contact } = email
-      ? await this.contacts.upsert(w.workspaceId, { firstName: firstName || undefined, lastName: rest.join(' ') || undefined, email, source: 'chat' })
+      ? await this.contacts.upsert(w.workspaceId, { firstName: firstName || undefined, lastName: rest.join(' ') || undefined, email, source: 'chat', attribution: dto.attribution })
       : { contact: await this.contacts.create(w.workspaceId, { firstName: firstName || 'Website visitor', lastName: rest.join(' '), source: 'chat' } as any) };
+    if (!email && dto.attribution) {
+      const a = cleanAttribution(dto.attribution);
+      if (a.first) await this.contacts.recordTouch(contact.id, a, true);
+    }
     let conv = await this.conversations.findOne({ where: { workspaceId: w.workspaceId, contactId: contact.id, channel: 'chat' } });
     if (!conv) conv = await this.conversations.save(this.conversations.create({ workspaceId: w.workspaceId, contactId: contact.id, channel: 'chat', subject: 'Web chat' }));
     const token = randomBytes(32).toString('base64url');
