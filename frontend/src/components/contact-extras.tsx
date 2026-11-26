@@ -7,6 +7,7 @@ import type { Contact } from '@/lib/types';
 import type { Appointment, CustomField, Invoice, Note, Task } from '@/lib/types-ext';
 import { StatusBadge, errorText, useToast } from './ui';
 import { TaskForm } from './task-form';
+import { channelOf, type Touch } from '@eril/shared';
 import { TaskList } from './task-list';
 
 type Tab = 'notes' | 'tasks' | 'appointments' | 'invoices';
@@ -140,6 +141,8 @@ export function ContactCustomFields({ contact, onSaved }: { contact: Contact & {
         <span className="text-xs uppercase tracking-wide text-slate-400">Source</span>
         <span className="text-sm">{contact.source ?? 'manual'}</span>
       </div>
+      <TouchInfo label="First touch" t={(contact as any).firstTouch} />
+      {JSON.stringify((contact as any).lastTouch) !== JSON.stringify((contact as any).firstTouch) && <TouchInfo label="Latest touch" t={(contact as any).lastTouch} />}
       <label className="flex items-center justify-between text-sm">
         <span>
           Do not disturb
@@ -192,6 +195,39 @@ export function ContactCustomFields({ contact, onSaved }: { contact: Contact & {
           {dirty && <button className="btn-primary w-full py-1.5">Save fields</button>}
         </form>
       )}
+    </div>
+  );
+}
+
+/** Where a contact came from: channel, campaign details and landing page. Hidden when nothing was tracked. */
+function TouchInfo({ label, t }: { label: string; t?: Touch | null }) {
+  if (!t) return null;
+  const details = [
+    t.campaign && `campaign “${t.campaign}”`,
+    t.source && t.medium && `${t.source} / ${t.medium}`,
+    t.term && `term “${t.term}”`,
+    t.content && `ad “${t.content}”`,
+  ].filter(Boolean);
+  let landing = '';
+  try {
+    landing = t.landingPage ? new URL(t.landingPage).pathname : '';
+  } catch {
+    /* ignore */
+  }
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <span className="shrink-0 text-xs uppercase tracking-wide text-slate-400">{label}</span>
+      <span className="min-w-0 text-right text-sm">
+        <span className="font-medium">{channelOf(t)}</span>
+        {details.length > 0 && <span className="block truncate text-xs text-slate-500" title={details.join(' · ')}>{details.join(' · ')}</span>}
+        {(landing || t.capturedAt) && (
+          <span className="block truncate text-xs text-slate-400" title={t.landingPage}>
+            {landing && `landed on ${landing}`}
+            {landing && t.capturedAt ? ' · ' : ''}
+            {t.capturedAt && new Date(t.capturedAt).toLocaleDateString()}
+          </span>
+        )}
+      </span>
     </div>
   );
 }

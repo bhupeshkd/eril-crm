@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import { Spinner } from './ui';
+import { captureTouch } from '@/lib/attribution';
 import { BrandMark, DEFAULT_BRANDING, usePublicBranding, type Branding } from '@/lib/branding';
 
 /** Which link a public page was opened with, so it can show the owning agency's branding. */
@@ -9,6 +11,8 @@ export type BrandKey = { kind: string; key: string };
 /** Backdrop for customer-facing pages: soft tinted gradient, centred column, quiet footer. */
 export function PublicShell({ children, center, wide, brand }: { children: React.ReactNode; center?: boolean; wide?: boolean; brand?: BrandKey }) {
   const b = usePublicBranding(brand?.kind, brand?.key);
+  // Remember where this visitor came from (UTM tags, ad click IDs, referrer) for attribution.
+  useEffect(() => captureTouch(), []);
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#f6f7f9] px-4 py-10 sm:py-14">
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-brand-100/70 via-brand-50/40 to-transparent" />

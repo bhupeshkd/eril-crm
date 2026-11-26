@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { captureTouch } from '@/lib/attribution';
 import { Spinner, errorText } from '@/components/ui';
 import { PublicLoading } from '@/components/public-shell';
 import { Embeds, PageView, SitePage, SiteTheme } from '@/components/site-blocks';
@@ -22,6 +23,8 @@ export default function PublicSitePage() {
   const path = (params.path ?? []).join('/');
   const [site, setSite] = useState<PublicSite | null>(null);
   const [error, setError] = useState('');
+
+  useEffect(() => captureTouch(), []);
 
   useEffect(() => {
     api<PublicSite>(`/public/sites/${slug}`, { auth: false }).then(setSite).catch((e) => setError(errorText(e)));

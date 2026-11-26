@@ -45,7 +45,7 @@ capabilities under its own design and naming. Status legend: ✅ done · 🟡 pa
 | Payments | Downsells: a cheaper fallback per upsell, shown only when that upsell is declined | `payments` | ✅ |
 | Reputation | Review requests, review inbox, review widget | `reputation` | ✅ |
 | Reporting | Dashboard KPIs, activity | `dashboard` | ✅ |
-| Reporting | Lead sources, revenue, pipeline, show/win rates, forms, automation | `reports` | ✅ (ads attribution ⏳) |
+| Reporting | Lead sources, revenue, pipeline, show/win rates, forms, automation | `reports` | ✅ incl. marketing attribution (UTM tags, Google/Meta/Microsoft click IDs, referrers; first- and latest-touch reports with revenue) |
 | Phone | Business numbers with call forwarding, voicemail, missed-call text-back, call log, `call.missed` workflow trigger (Twilio Voice webhooks, signature-checked) | `phone` | ✅ |
 | Phone | Click-to-call from contacts (rings your phone, then the customer), phone menus (IVR), recording of answered calls | `phone` | ✅ |
 | Phone | In-browser softphone (WebRTC) | `phone` | ⏳ (needs a Twilio Voice SDK app) |

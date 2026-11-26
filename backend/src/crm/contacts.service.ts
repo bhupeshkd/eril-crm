@@ -6,6 +6,7 @@ import { Contact } from '../database/entities/contact.entity';
 import { Company } from '../database/entities/company.entity';
 import { SmartList } from '../database/entities/crm-extras.entity';
 import { applyContactFilters, cleanFilters } from './contact-filters';
+import { cleanAttribution, type Touch } from './attribution';
 import { EventsService } from '../events/events.service';
 import { ActivityService } from '../events/activity.service';
 import { BulkContactsDto, ContactQueryDto, CreateContactDto, ImportContactsDto, UpdateContactDto } from './dto';
@@ -157,6 +158,8 @@ export class ContactsService {
       tags?: string[];
       customFields?: Record<string, any>;
       source?: string;
+      /** Raw { first, last } touches from a public page; cleaned here. */
+      attribution?: unknown;
     },
     userId?: string | null,
   ): Promise<{ contact: Contact; created: boolean }> {
@@ -165,6 +168,7 @@ export class ContactsService {
     let existing: Contact | null = null;
     if (email) existing = await this.contacts.findOne({ where: { workspaceId, email: ILike(email) } });
     if (!existing && phone) existing = await this.contacts.findOne({ where: { workspaceId, phone } });
+    const touch = data.attribution ? cleanAttribution(data.attribution) : null;
 
     if (!existing) {
       const contact = await this.create(
@@ -181,6 +185,10 @@ export class ContactsService {
         },
         userId ?? undefined,
       );
+      if (touch?.first) {
+        await this.recordTouch(contact.id, touch, true);
+        Object.assign(contact, { firstTouch: touch.first, lastTouch: touch.last });
+      }
       return { contact, created: true };
     }
     const patch: UpdateContactDto = {
@@ -192,7 +200,17 @@ export class ContactsService {
     if (phone && !existing.phone) patch.phone = phone;
     if (email && !existing.email) patch.email = email;
     const contact = await this.update(workspaceId, existing.id, patch, userId ?? undefined);
+    if (touch?.first) {
+      const setFirst = !existing.firstTouch;
+      await this.recordTouch(existing.id, touch, setFirst);
+      Object.assign(contact, { lastTouch: touch.last, ...(setFirst ? { firstTouch: touch.first } : {}) });
+    }
     return { contact, created: false };
+  }
+
+  /** Store where a contact came from: the latest touch always, the first only if they had none. */
+  async recordTouch(contactId: string, a: { first: Touch | null; last: Touch | null }, setFirst: boolean) {
+    await this.contacts.update({ id: contactId }, { lastTouch: a.last, ...(setFirst ? { firstTouch: a.first } : {}) } as any);
   }
 
   async bulk(workspaceId: string, dto: BulkContactsDto, userId?: string) {
