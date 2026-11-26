@@ -8,13 +8,24 @@ import { BaseEntity } from './base.entity';
 @Entity('custom_domains')
 @Index(['hostname'], { unique: true, where: `"status" = 'verified' AND "deleted_at" IS NULL` })
 @Index(['siteId'])
+@Index('IDX_custom_domains_org', ['organizationId'])
 @Index(['status', 'lastCheckedAt'])
 export class CustomDomain extends BaseEntity {
-  @Column({ name: 'workspace_id', type: 'uuid' })
-  workspaceId: string;
+  /** Set for site domains (app domains belong to an organization instead). */
+  @Column({ name: 'workspace_id', type: 'uuid', nullable: true })
+  workspaceId: string | null;
 
-  @Column({ name: 'site_id', type: 'uuid' })
-  siteId: string;
+  /** site: serves a published site. app: an agency's own address for the staff app (white-label login). */
+  @Column({ type: 'varchar', length: 10, default: 'site' })
+  kind: 'site' | 'app';
+
+  /** Set for site domains. */
+  @Column({ name: 'site_id', type: 'uuid', nullable: true })
+  siteId: string | null;
+
+  /** Set for app domains: the agency organization whose branding and login the domain shows. */
+  @Column({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId: string | null;
 
   @Column({ length: 253 })
   hostname: string;

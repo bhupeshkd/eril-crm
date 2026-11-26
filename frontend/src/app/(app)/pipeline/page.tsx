@@ -10,16 +10,20 @@ import { Icon } from '@/components/icons';
 
 /** One accent per stage position (dot, bar). */
 const STAGE_COLORS = [
-  { dot: 'bg-sky-500', bar: 'from-sky-400 to-sky-500', soft: 'bg-sky-50 text-sky-700 ring-sky-600/15' },
-  { dot: 'bg-indigo-500', bar: 'from-indigo-400 to-indigo-500', soft: 'bg-indigo-50 text-indigo-700 ring-indigo-600/15' },
-  { dot: 'bg-violet-500', bar: 'from-violet-400 to-violet-500', soft: 'bg-violet-50 text-violet-700 ring-violet-600/15' },
-  { dot: 'bg-fuchsia-500', bar: 'from-fuchsia-400 to-fuchsia-500', soft: 'bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-600/15' },
-  { dot: 'bg-amber-500', bar: 'from-amber-400 to-amber-500', soft: 'bg-amber-50 text-amber-700 ring-amber-600/20' },
-  { dot: 'bg-emerald-500', bar: 'from-emerald-400 to-emerald-500', soft: 'bg-emerald-50 text-emerald-700 ring-emerald-600/15' },
-  { dot: 'bg-rose-500', bar: 'from-rose-400 to-rose-500', soft: 'bg-rose-50 text-rose-700 ring-rose-600/15' },
-  { dot: 'bg-teal-500', bar: 'from-teal-400 to-teal-500', soft: 'bg-teal-50 text-teal-700 ring-teal-600/15' },
+  // Pastel stage badges; bars run sand (early) → sky (working) → lime (won).
+  { dot: 'bg-[#D8C380]', bar: '#D8C380', soft: 'bg-[#F1E7C4] text-[#5C4D1C]' },
+  { dot: 'bg-[#5B9EE1]', bar: '#5B9EE1', soft: 'bg-[#CBE1F6] text-[#1E4569]' },
+  { dot: 'bg-[#8FB65A]', bar: '#5B9EE1', soft: 'bg-[#D4E7B5] text-[#33461A]' },
+  { dot: 'bg-[#E0936F]', bar: '#5B9EE1', soft: 'bg-[#F1C7B8] text-[#5E2E1C]' },
+  { dot: 'bg-[#9C88D6]', bar: '#5B9EE1', soft: 'bg-[#DDD5F3] text-[#3C2F66]' },
+  { dot: 'bg-[#5FB3A3]', bar: '#5B9EE1', soft: 'bg-[#CBE8E2] text-[#1F4E45]' },
 ];
-const colorAt = (i: number) => STAGE_COLORS[i % STAGE_COLORS.length];
+const colorAt = (i: number, name = '') =>
+  /won/i.test(name)
+    ? { dot: 'bg-[#A3D929]', bar: '#A3D929', soft: 'bg-[#E3F4B5] text-[#33461A]' }
+    : /lost/i.test(name)
+      ? { dot: 'bg-[#D5788F]', bar: '#D5788F', soft: 'bg-[#F3D2DA] text-[#6A2537]' }
+      : STAGE_COLORS[i % STAGE_COLORS.length];
 
 const HUES = ['bg-indigo-500', 'bg-violet-500', 'bg-sky-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-teal-500', 'bg-fuchsia-500'];
 const hue = (s: string) => HUES[[...s].reduce((a, c) => a + c.charCodeAt(0), 0) % HUES.length];
@@ -79,6 +83,19 @@ export default function PipelinePage() {
   useEffect(() => {
     loadPipelines().catch((e) => toast(errorText(e), 'error'));
   }, [loadPipelines, toast]);
+
+  // Deep links: ?new=1 opens a new deal; ?deal=<id> opens that deal (on its own pipeline).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const dealId = params.get('deal');
+    if (params.get('new') === '1') setEditing({ new: true });
+    else if (dealId && /^[0-9a-f-]{36}$/i.test(dealId)) {
+      api<Opportunity>(`/sales/opportunities/${dealId}`)
+        .then((o) => { setPipelineId(o.pipelineId); setEditing(o); })
+        .catch((e) => toast(errorText(e), 'error'));
+    }
+    if (dealId || params.has('new')) window.history.replaceState(null, '', '/pipeline');
+  }, [toast]);
   useEffect(() => {
     loadBoard();
   }, [loadBoard]);
@@ -157,7 +174,7 @@ export default function PipelinePage() {
   return (
     <>
       <PageHeader
-        title="Opportunities"
+        title="Pipeline"
         subtitle={board ? `${board.pipeline.name} · ${all.length} deal${all.length === 1 ? '' : 's'}` : 'Your sales pipeline'}
         actions={
           <>
@@ -228,16 +245,16 @@ export default function PipelinePage() {
           </div>
 
           {view === 'board' ? (
-            <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-6 md:-mx-8 md:px-8">
+            <div className="-mx-4 flex gap-4 overflow-x-auto px-4 pb-6 md:-mx-6 md:px-6">
               {board.stages.map((stage, si) => {
-                const color = colorAt(si);
+                const color = colorAt(si, stage.name);
                 const cards = stage.opportunities.filter(matches);
                 const over = overStage === stage.id;
                 return (
                   <section
                     key={stage.id}
                     aria-label={`${stage.name} column`}
-                    className={`flex w-[300px] shrink-0 flex-col rounded-2xl border transition ${over ? 'border-brand-400 bg-brand-50/60 ring-4 ring-brand-500/10' : 'border-slate-200/70 bg-slate-100/60'}`}
+                    className={`glass flex w-[300px] shrink-0 flex-col rounded-[20px] transition ${over ? 'ring-4 ring-[#B6E633]/60' : ''}`}
                     onDragOver={(e) => {
                       if (!dragId) return;
                       e.preventDefault();
@@ -257,16 +274,19 @@ export default function PipelinePage() {
                   >
                     <header className="px-3.5 pb-2 pt-3">
                       <div className="flex items-center gap-2">
-                        <span aria-hidden className={`h-2 w-2 rounded-full ${color.dot}`} />
-                        <h2 className="flex-1 truncate text-[13px] font-semibold text-slate-800">{stage.name}</h2>
-                        <span className="rounded-full bg-white px-2 py-px text-[11px] font-semibold tabular-nums text-slate-500 ring-1 ring-slate-200/80">{stage.opportunities.length}</span>
+                        <h2 className={`inline-flex min-w-0 items-center gap-1.5 truncate rounded-full px-2.5 py-1 text-[12px] font-semibold ${color.soft}`}>
+                          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.dot}`} />
+                          {stage.name}
+                        </h2>
+                        <span className="flex-1" />
+                        <span className="chip">{stage.opportunities.length}</span>
                       </div>
                       <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
-                        <span className="font-semibold tabular-nums text-slate-700">{fmtMoney(stage.totalValue)}</span>
+                        <span className="text-[15px] font-bold tracking-tight text-ink num">{fmtMoney(stage.totalValue)}</span>
                         <span>{stage.probability}% win chance</span>
                       </div>
-                      <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-200/80">
-                        <div className={`h-full rounded-full bg-gradient-to-r ${color.bar}`} style={{ width: `${stage.totalValue ? Math.max(4, (stage.totalValue / maxStageValue) * 100) : 0}%` }} />
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--track)' }}>
+                        <div className="h-full rounded-full" style={{ background: color.bar, width: `${stage.totalValue ? Math.max(4, (stage.totalValue / maxStageValue) * 100) : 0}%` }} />
                       </div>
                     </header>
                     <div className="flex min-h-[140px] flex-1 flex-col gap-2 px-2.5 pb-2.5 pt-1">
@@ -293,12 +313,12 @@ export default function PipelinePage() {
                         />
                       ))}
                       {cards.length === 0 && (
-                        <div className={`grid flex-1 place-items-center rounded-xl border-2 border-dashed px-3 py-6 text-center text-xs ${over ? 'border-brand-300 text-brand-600' : 'border-slate-200 text-slate-400'}`}>
+                        <div className={`grid flex-1 place-items-center rounded-2xl border-2 border-dashed px-3 py-6 text-center text-xs ${over ? 'border-[#A3D929] text-ink' : 'border-[var(--glass-line)] text-muted'}`}>
                           {filtering && stage.opportunities.length ? 'No matching deals' : over ? 'Drop here' : 'No deals yet'}
                         </div>
                       )}
                       {canWrite && (
-                        <button className="mt-0.5 flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-medium text-slate-500 transition hover:bg-white hover:text-brand-700 hover:shadow-sm" onClick={() => setEditing({ new: true, stageId: stage.id })}>
+                        <button className="mt-0.5 flex items-center justify-center gap-1.5 rounded-full py-1.5 text-xs font-medium text-muted transition hover:bg-[var(--pill)] hover:text-ink" onClick={() => setEditing({ new: true, stageId: stage.id })}>
                           <Icon name="plus" className="h-3.5 w-3.5" /> Add deal
                         </button>
                       )}
@@ -420,12 +440,13 @@ function DealCard({
       draggable={canWrite}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className={`group relative rounded-xl border bg-white p-3 shadow-card transition hover:border-slate-300 hover:shadow-card-hover ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''} ${dragging ? 'rotate-1 opacity-40' : ''} ${
-        o.status === 'won' ? 'border-emerald-200' : o.status === 'lost' ? 'border-rose-200 opacity-80' : 'border-slate-200/80'
+      className={`group relative rounded-2xl border p-3 transition hover:-translate-y-px hover:shadow-[0_10px_24px_-18px_rgba(24,26,24,0.45)] ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''} ${dragging ? 'rotate-1 opacity-40' : ''} ${
+        o.status === 'won' ? 'border-[#A3D929]/60' : o.status === 'lost' ? 'border-rose-200 opacity-80' : 'border-[var(--glass-border)]'
       }`}
+      style={{ background: 'var(--glass-strong)' }}
     >
       <div className="flex items-start gap-2">
-        <button className="min-w-0 flex-1 text-left text-[13.5px] font-semibold leading-snug text-slate-900 hover:text-brand-700" onClick={onOpen}>
+        <button className="min-w-0 flex-1 text-left text-[14px] font-semibold leading-snug text-ink hover:underline" onClick={onOpen}>
           {o.title}
         </button>
         {closed && <StatusBadge status={o.status} />}

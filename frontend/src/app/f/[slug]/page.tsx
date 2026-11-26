@@ -4,6 +4,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { ApiError, api } from '@/lib/api';
 import type { FormField } from '@/lib/types-ext';
+import { captureTouch, getAttribution } from '@/lib/attribution';
 import { FormRenderer } from '@/components/form-renderer';
 import { Spinner, errorText } from '@/components/ui';
 import { PublicLoading, PublicShell, SuccessMark } from '@/components/public-shell';
@@ -33,6 +34,8 @@ function PublicForm() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState('');
 
+  // Embedded forms skip PublicShell, so capture attribution here too.
+  useEffect(() => captureTouch(), []);
   useEffect(() => {
     api<PublicForm>(`/public/forms/${slug}`, { auth: false }).then(setForm).catch((e) => setError(errorText(e)));
   }, [slug]);
@@ -42,7 +45,7 @@ function PublicForm() {
     setError('');
     setFieldErrors({});
     try {
-      const res = await api(`/public/forms/${slug}/submit`, { method: 'POST', auth: false, body: { data } });
+      const res = await api(`/public/forms/${slug}/submit`, { method: 'POST', auth: false, body: { data, attribution: getAttribution() } });
       if (res.redirectUrl && /^https?:\/\//.test(res.redirectUrl)) {
         (embed ? window.top ?? window : window).location.href = res.redirectUrl;
         return;

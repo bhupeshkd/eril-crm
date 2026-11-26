@@ -45,12 +45,12 @@ capabilities under its own design and naming. Status legend: ✅ done · 🟡 pa
 | Payments | Downsells: a cheaper fallback per upsell, shown only when that upsell is declined | `payments` | ✅ |
 | Reputation | Review requests, review inbox, review widget | `reputation` | ✅ |
 | Reporting | Dashboard KPIs, activity | `dashboard` | ✅ |
-| Reporting | Lead sources, revenue, pipeline, show/win rates, forms, automation | `reports` | ✅ (ads attribution ⏳) |
+| Reporting | Lead sources, revenue, pipeline, show/win rates, forms, automation | `reports` | ✅ incl. marketing attribution (UTM tags, Google/Meta/Microsoft click IDs, referrers; first- and latest-touch reports with revenue) |
 | Phone | Business numbers with call forwarding, voicemail, missed-call text-back, call log, `call.missed` workflow trigger (Twilio Voice webhooks, signature-checked) | `phone` | ✅ |
 | Phone | Click-to-call from contacts (rings your phone, then the customer), phone menus (IVR), recording of answered calls | `phone` | ✅ |
 | Phone | In-browser softphone (WebRTC) | `phone` | ⏳ (needs a Twilio Voice SDK app) |
 | AI | Content AI (drafts, reply suggestions, contact summaries, AI workflow step) | `ai` | ✅ incl. AI conversation assistant (auto-replies, hand-off to a person with a task, per-conversation pause/resume) |
-| Agency | Sub-accounts console, metrics, snapshots | `agency` | ✅ (white-label branding ✅; SaaS mode ✅ — plans, trials, feature gating, contact/user limits, read-only suspension, usage rebilling ✅; custom site domains ✅; custom app domain for agencies ⏳) |
+| Agency | Sub-accounts console, metrics, snapshots | `agency` | ✅ (white-label branding ✅; SaaS mode ✅ — plans, trials, feature gating, contact/user limits, read-only suspension, usage rebilling ✅; custom site domains ✅; custom app domain for agencies ✅) |
 | Settings | Team, roles & permissions, API keys, webhooks | `auth`/`workspaces`/`developer` | ✅ (email invitations with 7-day links, role changes, remove/leave, at-least-one-owner rule) |
-| Mobile app | Native mobile app | — | ⏳ (responsive web today) |
+| Mobile app | Native mobile app | `frontend` (PWA) | ✅ installable web app (PWA): home-screen install, standalone window, shortcuts, offline page, white-labelled per agency domain. Push notifications ✅ (Web Push, per-device topics, role-aware). Native store apps ⏳ |
 | Platform | Real-time notifications (SSE), live inbox refresh | `events` | ✅ |

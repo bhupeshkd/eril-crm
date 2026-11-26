@@ -4,6 +4,7 @@ import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsOptional } from 'class-validator';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { Tenant } from '../common/decorators/tenant.decorator';
+import { channelOf, type Touch } from '../crm/attribution';
 
 class RangeDto {
   @IsOptional() @Type(() => Number) @IsInt() @IsIn([7, 30, 90, 365]) days?: number;
@@ -80,16 +81,75 @@ export class ReportsService {
   }
 }
 
+class AttributionDto extends RangeDto {
+  @IsOptional() @IsIn(['first', 'last']) model?: 'first' | 'last';
+}
+
+type Row = { leads: number; customers: number; revenue: number };
+
+/** Marketing attribution: leads, customers and revenue per channel and campaign, by first or last touch. */
+@Injectable()
+export class AttributionService {
+  constructor(private readonly ds: DataSource) {}
+
+  async report(ws: string, days = 30, model: 'first' | 'last' = 'first') {
+    // Contacts created in the window, with the lifetime paid revenue of each.
+    const rows: Array<{ status: string; touch: Touch | null; revenue: number }> = await this.ds.query(
+      `SELECT c.status, ${model === 'first' ? 'c.first_touch' : 'c.last_touch'} AS touch,
+              COALESCE((SELECT SUM(i.total) FROM invoices i WHERE i.contact_id = c.id AND i.workspace_id = $1 AND i.deleted_at IS NULL AND i.status = 'paid'), 0)::float AS revenue
+         FROM contacts c
+        WHERE c.workspace_id = $1 AND c.deleted_at IS NULL AND c.created_at > now() - ($2::int * interval '1 day')
+        LIMIT 50000`,
+      [ws, days],
+    );
+    const channels = new Map<string, Row>();
+    const campaigns = new Map<string, Row & { source: string; campaign: string; channel: string }>();
+    const add = (r: Row, revenue: number, customer: boolean) => {
+      r.leads++;
+      if (customer || revenue > 0) r.customers++;
+      r.revenue += revenue;
+    };
+    let tracked = 0;
+    for (const row of rows) {
+      const channel = channelOf(row.touch);
+      if (row.touch) tracked++;
+      const customer = row.status === 'customer';
+      add(channels.get(channel) ?? channels.set(channel, { leads: 0, customers: 0, revenue: 0 }).get(channel)!, row.revenue, customer);
+      const camp = row.touch?.campaign;
+      if (camp) {
+        const key = `${row.touch?.source ?? ''}|${camp}`;
+        const c = campaigns.get(key) ?? campaigns.set(key, { leads: 0, customers: 0, revenue: 0, source: row.touch?.source ?? '', campaign: camp, channel }).get(key)!;
+        add(c, row.revenue, customer);
+      }
+    }
+    const round = (n: number) => Math.round(n * 100) / 100;
+    const withRates = <T extends Row>(r: T) => ({ ...r, revenue: round(r.revenue), conversionRate: r.leads ? Math.round((r.customers / r.leads) * 1000) / 10 : 0 });
+    return {
+      model,
+      days,
+      totals: { leads: rows.length, tracked, customers: rows.filter((r) => r.status === 'customer' || r.revenue > 0).length, revenue: round(rows.reduce((s, r) => s + r.revenue, 0)) },
+      channels: [...channels].map(([channel, r]) => withRates({ channel, ...r })).sort((a, b) => b.revenue - a.revenue || b.leads - a.leads),
+      campaigns: [...campaigns.values()].map(withRates).sort((a, b) => b.revenue - a.revenue || b.leads - a.leads).slice(0, 50),
+    };
+  }
+}
+
 @Controller('reports')
 export class ReportsController {
-  constructor(private readonly svc: ReportsService) {}
+  constructor(private readonly svc: ReportsService, private readonly attribution: AttributionService) {}
 
   @Get('overview')
   @Permissions('analytics:read')
   overview(@Tenant('workspaceId') ws: string, @Query() q: RangeDto) {
     return this.svc.overview(ws, q.days ?? 30);
   }
+
+  @Get('attribution')
+  @Permissions('analytics:read')
+  attributionReport(@Tenant('workspaceId') ws: string, @Query() q: AttributionDto) {
+    return this.attribution.report(ws, q.days ?? 30, q.model ?? 'first');
+  }
 }
 
-@Module({ controllers: [ReportsController], providers: [ReportsService] })
+@Module({ controllers: [ReportsController], providers: [ReportsService, AttributionService] })
 export class ReportsModule {}

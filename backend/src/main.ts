@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { DomainsService } from './sites/domains';
 
 async function bootstrap() {
   // rawBody: webhook signatures (e.g. Meta's) are computed over the exact bytes received.
@@ -9,8 +10,15 @@ async function bootstrap() {
   const prefix = process.env.API_GLOBAL_PREFIX || 'api/v1';
 
   app.setGlobalPrefix(prefix);
+  // The app's own origin is always allowed; verified custom domains (agency app domains and
+  // site domains) are looked up so a white-label login or a published site can call the API.
+  const appOrigin = new URL(process.env.APP_URL || 'http://localhost:3000').origin;
+  const domains = app.get(DomainsService);
   app.enableCors({
-    origin: process.env.APP_URL || 'http://localhost:3000',
+    origin: (origin, cb) => {
+      if (!origin || origin === appOrigin) return cb(null, true);
+      domains.isAllowedOrigin(origin).then((ok) => cb(null, ok), () => cb(null, false));
+    },
     credentials: true,
   });
   app.useGlobalPipes(

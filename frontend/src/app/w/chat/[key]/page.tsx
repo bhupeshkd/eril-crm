@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_URL } from '@/lib/api';
+import { captureTouch, getAttribution } from '@/lib/attribution';
 
 type Config = { enabled: boolean; title: string; greeting: string; askFor: 'none' | 'email' | 'name_email'; color: string; position: 'right' | 'left'; businessName: string };
 type Msg = { id: string; from: 'visitor' | 'agent' | 'bot'; agent: string | null; body: string; createdAt: string };
@@ -49,6 +50,9 @@ export default function ChatWidgetPage() {
   const listRef = useRef<HTMLDivElement>(null);
   const openRef = useRef(open);
   openRef.current = open;
+
+  // The host page (passed as ?page=) is where the visitor landed; capture its UTM tags.
+  useEffect(() => captureTouch(new URLSearchParams(location.search).get('page')), []);
 
   // Transparent page so only the bubble/panel show on the host site.
   useEffect(() => {
@@ -115,7 +119,7 @@ export default function ChatWidgetPage() {
     try {
       const r = await call<Session & { messages: Msg[] }>(`/public/chat/widgets/${encodeURIComponent(key)}/sessions`, {
         method: 'POST',
-        body: { name: form.name || undefined, email: form.email || undefined, pageUrl: new URLSearchParams(location.search).get('page') ?? '', message: draft.trim() },
+        body: { name: form.name || undefined, email: form.email || undefined, pageUrl: new URLSearchParams(location.search).get('page') ?? '', message: draft.trim(), attribution: getAttribution() },
       });
       const s = { sessionId: r.sessionId, token: r.token };
       saveSession(key, s);

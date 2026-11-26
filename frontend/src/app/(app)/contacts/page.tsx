@@ -10,6 +10,7 @@ import { ContactForm } from '@/components/contact-form';
 import { EmptyState, Modal, PageHeader, Spinner, StatusBadge, Tag, errorText, useToast } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { ContactAvatar } from '@/components/contact-avatar';
+import { ContactDrawer } from '@/components/contact-drawer';
 
 const STATUS_TABS = [['', 'All'], ['lead', 'Leads'], ['customer', 'Customers'], ['churned', 'Churned']] as const;
 const DAY_OPTIONS = [['', 'Added: any time'], ['7', 'Added: last 7 days'], ['30', 'Added: last 30 days'], ['90', 'Added: last 90 days']] as const;
@@ -46,6 +47,17 @@ function Contacts() {
   const [data, setData] = useState<Paged<Contact> | null>(null);
   const [allTags, setAllTags] = useState<string[]>([]);
   const [editing, setEditing] = useState<Contact | null | 'new'>(null);
+  /** Contact shown in the slide-over (the table stays as it is behind it). */
+  const [peek, setPeek] = useState<Contact | null>(null);
+
+  // ?new=1 (from the + New menu) opens the new-contact form.
+  useEffect(() => {
+    if (params.get('new') === '1') {
+      setEditing('new');
+      router.replace('/contacts');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -313,7 +325,7 @@ function Contacts() {
           {hasFilters || listId ? 'No contacts match these filters right now.' : 'Create your first contact to get started.'}
         </EmptyState>
       ) : (
-        <div className="card overflow-x-auto">
+        <div className="card-solid overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200">
               <tr>
@@ -340,9 +352,9 @@ function Contacts() {
                   key={c.id}
                   className={`group cursor-pointer ${selected.has(c.id) ? 'bg-brand-50/70' : 'hover:bg-slate-50/80'}`}
                   onClick={(e) => {
-                    // Row opens the contact, except when using a control inside it.
+                    // Row opens a quick view, except when using a control inside it (the name links to the full profile).
                     if ((e.target as HTMLElement).closest('a,button,input,label')) return;
-                    router.push(`/contacts/${c.id}`);
+                    setPeek(c);
                   }}
                 >
                   <td className="px-4 py-3">
@@ -411,6 +423,8 @@ function Contacts() {
           </div>
         </div>
       )}
+
+      {peek && <ContactDrawer contact={peek} onClose={() => setPeek(null)} onEdit={() => { setEditing(peek); setPeek(null); }} />}
 
       <Modal open={editing !== null} title={editing === 'new' ? 'New contact' : 'Edit contact'} onClose={() => setEditing(null)} wide>
         {editing !== null && (

@@ -83,6 +83,8 @@ export class PublicOrderDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100) quantity?: number;
   @IsOptional() @IsBoolean() bump?: boolean;
   @IsOptional() @IsString() @MaxLength(40) couponCode?: string;
+  /** Marketing attribution captured on the page ({ first, last } touches). */
+  @IsOptional() @IsObject() attribution?: Record<string, unknown>;
 }
 export class UpsellAnswerDto {
   @Type(() => Number) @IsInt() @Min(0) @Max(2) index: number;
@@ -288,6 +290,7 @@ export class OrderFormsService implements OnModuleInit {
       phone: f.collectPhone ? dto.phone || undefined : undefined,
       tags: f.tags,
       source: 'order_form',
+      attribution: dto.attribution,
     });
     const inv = await this.payments.createInvoice(
       f.workspaceId,

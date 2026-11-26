@@ -125,6 +125,8 @@ export class PublicBookingDto {
   @IsEmail() email: string;
   @IsOptional() @IsString() @MaxLength(30) phone?: string;
   @IsOptional() @IsString() @MaxLength(2000) notes?: string;
+  /** Marketing attribution captured on the page ({ first, last } touches). */
+  @IsOptional() @IsObject() attribution?: Record<string, unknown>;
 }
 
 class SlotQuery {
@@ -545,6 +547,7 @@ export class CalendarsService {
       email: dto.email,
       phone: dto.phone,
       source: 'booking',
+      attribution: dto.attribution,
     });
     const appt = await this.createAppointment(
       cal.workspaceId,

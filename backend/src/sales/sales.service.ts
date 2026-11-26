@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { closedAtFor } from './closed-at';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Not, Repository } from 'typeorm';
 import { Pipeline } from '../database/entities/pipeline.entity';
@@ -178,6 +179,7 @@ export class SalesService {
         value: dto.value ?? 0,
         probability: dto.probability ?? null,
         status: dto.status ?? statusForStage(stage.name),
+        closedAt: closedAtFor(null, dto.status ?? statusForStage(stage.name), null),
         contactId: dto.contactId ?? null,
         pipelineId: pipeline.id,
         stageId: stage.id,
@@ -204,8 +206,25 @@ export class SalesService {
     const opp = await this.getOpportunity(workspaceId, id);
     if (dto.contactId) await this.assertContact(workspaceId, dto.contactId);
     const { contact, stage, ...rest } = opp;
-    await this.opps.save({ ...rest, ...dto });
+    const next = { ...rest, ...dto };
+    next.closedAt = closedAtFor(opp.status, next.status, opp.closedAt);
+    await this.opps.save(next);
     return this.getOpportunity(workspaceId, id);
+  }
+
+  async searchOpportunities(workspaceId: string, q: string) {
+    const term = q.trim().slice(0, 100);
+    if (!term) return [];
+    return this.opps.query(
+      `SELECT o.id, o.title, o.value::float AS value, o.status, s.name AS stage,
+              TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')) AS contact
+         FROM opportunities o JOIN pipeline_stages s ON s.id = o.stage_id LEFT JOIN contacts c ON c.id = o.contact_id
+        WHERE o.workspace_id = $1 AND o.deleted_at IS NULL
+          AND (o.title ILIKE $2 OR c.first_name ILIKE $2 OR c.last_name ILIKE $2)
+        ORDER BY (o.status = 'open') DESC, o.updated_at DESC LIMIT 6`,
+      // Escape LIKE wildcards so "%" or "_" in the search are matched literally.
+      [workspaceId, `%${term.replace(/[%_\\]/g, (m) => `\\${m}`)}%`],
+    );
   }
 
   async deleteOpportunity(workspaceId: string, id: string) {
@@ -238,7 +257,10 @@ export class SalesService {
         await tx.update(Opportunity, { id: o.id }, { position: i });
       }
       const patch: Partial<Opportunity> = { stageId: target.id };
-      if (fromStage.id !== target.id) patch.status = statusForStage(target.name, opp.status);
+      if (fromStage.id !== target.id) {
+        patch.status = statusForStage(target.name, opp.status);
+        patch.closedAt = closedAtFor(opp.status, patch.status, opp.closedAt);
+      }
       await tx.update(Opportunity, { id: opp.id }, patch);
     });
     if (fromStage.id !== target.id) {

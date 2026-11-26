@@ -35,6 +35,7 @@ import { ReputationModule } from './reputation/reputation';
 import { CoursesModule } from './courses/courses';
 import { AgencyModule } from './agency/agency';
 import { BrandingModule } from './agency/branding';
+import { PushModule } from './push/push';
 import { EmailTemplatesModule } from './email-templates/email-templates';
 import { CommunitiesModule } from './communities/communities';
 import { TenantGuard } from './common/guards/tenant.guard';
@@ -104,6 +105,7 @@ import { WorkspaceMember } from './database/entities/workspace-member.entity';
     PhoneModule,
     MetaModule,
     SocialModule,
+    PushModule,
   ],
   providers: [
     {

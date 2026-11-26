@@ -45,6 +45,7 @@ class AskQuery {
 }
 
 const PER_SITE = 5;
+const APP_PER_ORG = 2;
 /** Pending domains are re-checked automatically for this long. */
 const AUTO_CHECK_MS = 72 * 3_600_000;
 
@@ -126,7 +127,7 @@ export class DomainsService implements OnModuleInit, OnModuleDestroy {
     return this.view(d);
   }
 
-  private async lookup(host: string, token: string) {
+  private async lookup(host: string, token: string, target = this.target) {
     let txtOk = false;
     let txtError: string | null = null;
     try {
@@ -136,7 +137,7 @@ export class DomainsService implements OnModuleInit, OnModuleDestroy {
       txtError = code === 'ENOTFOUND' || code === 'ENODATA' ? null : `DNS lookup failed (${code ?? 'error'})`;
     }
     const cnames = await this.resolver.resolveCname(host).catch(() => [] as string[]);
-    return { txtOk, txtError, cname: cnameStatus(cnames, this.target) };
+    return { txtOk, txtError, cname: cnameStatus(cnames, target) };
   }
 
   /** Checks DNS now; on success the domain starts routing to the site. */
@@ -147,8 +148,8 @@ export class DomainsService implements OnModuleInit, OnModuleDestroy {
     return { ...this.view(r.domain), cname: r.cname };
   }
 
-  private async check(d: CustomDomain) {
-    const { txtOk, txtError, cname } = await this.lookup(d.hostname, d.verificationToken);
+  private async check(d: CustomDomain, target = d.kind === 'app' ? this.appTarget : this.target) {
+    const { txtOk, txtError, cname } = await this.lookup(d.hostname, d.verificationToken, target);
     d.lastCheckedAt = new Date();
     if (!txtOk) {
       if (d.status !== 'verified') {
@@ -171,8 +172,9 @@ export class DomainsService implements OnModuleInit, OnModuleDestroy {
       });
     } catch {
       // The partial unique index stops two accounts verifying the same name at once.
-      throw new ConflictException('That domain is already connected to another site');
+      throw new ConflictException('That domain is already connected elsewhere');
     }
+    this.originCache.clear();
     return { domain: await this.domains.findOneByOrFail({ id: d.id }), cname };
   }
 
@@ -193,15 +195,82 @@ export class DomainsService implements OnModuleInit, OnModuleDestroy {
     return due.length;
   }
 
+  // ---- Agency app domains (one organization's own address for the staff app) ----
+  async listApp(orgId: string) {
+    const rows = await this.domains.find({ where: { organizationId: orgId, kind: 'app' }, order: { createdAt: 'ASC' } });
+    return { target: this.appTarget, domains: rows.map((d) => ({ ...this.view(d), dns: { ...this.view(d).dns, cname: { name: d.hostname, value: this.appTarget } } })) };
+  }
+
+  /** Where agencies point their app domain (the app's own host). */
+  get appTarget() {
+    const fromUrl = (() => { try { return new URL(this.config.get<string>('APP_URL') || '').hostname; } catch { return ''; } })();
+    return (this.config.get<string>('APP_CNAME_TARGET') || fromUrl || 'app.eril.local').toLowerCase();
+  }
+
+  async addApp(orgId: string, input: string) {
+    const n = normalizeHostname(input, this.reserved);
+    if ('error' in n) throw new BadRequestException(n.error);
+    if (await this.domains.exist({ where: { hostname: n.host, status: 'verified' } })) throw new ConflictException('That domain is already connected');
+    if (await this.domains.exist({ where: { hostname: n.host, organizationId: orgId, kind: 'app', status: Not('failed') } })) throw new ConflictException('You have already added that domain');
+    if ((await this.domains.count({ where: { organizationId: orgId, kind: 'app' } })) >= APP_PER_ORG) throw new BadRequestException(`An agency can have up to ${APP_PER_ORG} app domains`);
+    const d = await this.domains.save(
+      this.domains.create({ kind: 'app', organizationId: orgId, workspaceId: null, siteId: null, hostname: n.host, status: 'pending', verificationToken: randomBytes(16).toString('hex') }),
+    );
+    return (await this.listApp(orgId)).domains.find((x) => x.id === d.id)!;
+  }
+
+  async verifyApp(orgId: string, id: string) {
+    const d = await this.domains.findOne({ where: { id, organizationId: orgId, kind: 'app' } });
+    if (!d) throw new NotFoundException('Domain not found');
+    const r = await this.check(d, this.appTarget);
+    return { ...(await this.listApp(orgId)).domains.find((x) => x.id === r.domain.id)!, cname: r.cname };
+  }
+
+  async removeApp(orgId: string, id: string) {
+    const d = await this.domains.findOne({ where: { id, organizationId: orgId, kind: 'app' } });
+    if (!d) throw new NotFoundException('Domain not found');
+    await this.domains.softRemove(d);
+    this.originCache.clear();
+    return { id };
+  }
+
+  /** Verified app domain for an organization, used to build links (e.g. invitations) on the agency's own address. */
+  async appUrlFor(orgId: string): Promise<string | null> {
+    const d = await this.domains.findOne({ where: { organizationId: orgId, kind: 'app', status: 'verified' }, order: { verifiedAt: 'ASC' } });
+    return d ? `https://${d.hostname}` : null;
+  }
+
+  // ---- CORS ----
+  private originCache = new Map<string, { ok: boolean; at: number }>();
+
+  /** Browsers on a verified custom domain (site or app) may call the API. Cached for a minute. */
+  async isAllowedOrigin(origin: string): Promise<boolean> {
+    let host: string;
+    try {
+      const u = new URL(origin);
+      if (u.protocol !== 'https:' && u.hostname !== 'localhost' && !u.hostname.endsWith('.localhost')) return false;
+      host = u.hostname.toLowerCase();
+    } catch {
+      return false;
+    }
+    const hit = this.originCache.get(host);
+    if (hit && Date.now() - hit.at < 60_000) return hit.ok;
+    const ok = await this.domains.exist({ where: { hostname: host, status: 'verified' } });
+    if (this.originCache.size > 5000) this.originCache.clear();
+    this.originCache.set(host, { ok, at: Date.now() });
+    return ok;
+  }
+
   // ---- Public ----
-  /** Host → published site, for the frontend's routing. */
+  /** Host → published site (or agency app), for the frontend's routing. */
   async resolve(host: string) {
     const n = normalizeHostname(host);
     if ('error' in n) throw new NotFoundException('Unknown domain');
     const d = await this.domains.findOne({ where: { hostname: n.host, status: 'verified' } });
-    const s = d ? await this.sites.findOne({ where: { id: d.siteId, isPublished: true } }) : null;
+    if (d?.kind === 'app' && d.organizationId) return { kind: 'app' as const, organizationId: d.organizationId };
+    const s = d?.siteId ? await this.sites.findOne({ where: { id: d.siteId, isPublished: true } }) : null;
     if (!s) throw new NotFoundException('Unknown domain');
-    return { slug: s.slug, name: s.name };
+    return { kind: 'site' as const, slug: s.slug, name: s.name };
   }
 
   /** On-demand TLS "ask" check: only issue certificates for verified domains. */
@@ -267,5 +336,6 @@ export class PublicDomainsController {
   imports: [TypeOrmModule.forFeature([CustomDomain, Site])],
   controllers: [DomainsController, PublicDomainsController],
   providers: [DomainsService],
+  exports: [DomainsService],
 })
 export class DomainsModule {}

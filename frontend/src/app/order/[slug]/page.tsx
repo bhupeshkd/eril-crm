@@ -3,6 +3,7 @@
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api, fmtCurrency } from '@/lib/api';
+import { getAttribution } from '@/lib/attribution';
 import { errorText } from '@/components/ui';
 import { Icon } from '@/components/icons';
 import { PublicLoading, PublicShell } from '@/components/public-shell';
@@ -108,7 +109,7 @@ export default function OrderFormPage() {
       const order = await api<{ token: string }>(`/public/order-forms/${slug}/order`, {
         method: 'POST',
         auth: false,
-        body: { name: buyer.name, email: buyer.email, phone: form!.collectPhone ? buyer.phone || undefined : undefined, productId, quantity, bump, couponCode: coupon?.code },
+        body: { name: buyer.name, email: buyer.email, phone: form!.collectPhone ? buyer.phone || undefined : undefined, productId, quantity, bump, couponCode: coupon?.code, attribution: getAttribution() },
       });
       const pay = await api<{ mode: 'stripe' | 'test'; url?: string }>(`/public/invoices/${order.token}/checkout`, { method: 'POST', auth: false });
       location.href = pay.mode === 'stripe' && pay.url ? pay.url : `/invoice/${order.token}?pay=1`;
